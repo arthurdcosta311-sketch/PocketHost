@@ -43,6 +43,12 @@ Hosting therefore keeps answering with the screen off, until you tap **Stop
 server** or iOS ends the app. The whole thing is switchable in Settings →
 Background, along with whether the screen itself stays awake while hosting.
 
+## Releases
+
+Every push builds an unsigned IPA on GitHub Actions and refreshes a rolling
+**latest** release. Numbered releases are cut by pushing a `v*` tag or by
+including a `[release vX.Y.Z]` marker in a commit message on `main`.
+
 ## Limits worth knowing
 
 - Background hosting needs the Location background mode and location permission.

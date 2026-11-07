@@ -32,6 +32,15 @@ jobs:
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
 
+      # A commit on main whose message contains "[release vX.Y.Z]"
+      # cuts a numbered release in addition to the rolling latest.
+      - name: Detect release marker in commit message
+        run: |
+          if [[ "${{ github.event.head_commit.message }}" =~ \[release\ (v[0-9][^]\ ]+)\] ]]; then
+            echo "RELEASE_TAG=${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+            echo "Cutting release ${BASH_REMATCH[1]}"
+          fi
+
       - name: Build app (unsigned, device)
         run: |
           xcodebuild \
@@ -58,6 +67,8 @@ jobs:
           echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             IPA_NAME="PocketHost-${GITHUB_REF_NAME}.ipa"
+          elif [ -n "${RELEASE_TAG:-}" ]; then
+            IPA_NAME="PocketHost-${RELEASE_TAG}.ipa"
           else
             IPA_NAME="PocketHost-${SHORT_SHA}.ipa"
           fi
@@ -87,6 +98,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag }}
+          files: ${{ env.IPA_NAME }}
+          generate_release_notes: true
+
+      - name: Attach IPA to versioned release
+        if: env.RELEASE_TAG != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: ${{ env.IPA_NAME }}
           generate_release_notes: true
 
