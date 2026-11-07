@@ -1,0 +1,35 @@
+# Changelog
+
+## 0.4
+
+- Extended dynamic range: the browser's layer is set up for EDR rendering, the
+  opaque SDR background is gone, and served pages carry
+  `dynamic-range-limit: no-limit` so HDR images and video are not tone-mapped to
+  SDR first.
+- Internet hosting: NAT-PMP and UPnP-IGD port mapping with a global IPv6
+  fallback, renewed while the server runs and removed when it stops.
+- Fullscreen browsing: the address bar, controls, tab bar and status bar hide,
+  with a floating button to bring them back.
+- Web Crypto: a hardened shim, a revalidating ETag so cached pages cannot hide
+  it, GET/OPTIONS support on the endpoint, and a real digest check in the lab.
+- No memory ceiling: every file is streamed in chunks, whatever its size.
+
+## 0.3
+
+- Page runtimes are preloaded on the connected device, not held on the phone.
+  Pages revalidate with `ETag`; assets are kept by the client for a minute and
+  then revalidated in the background.
+- Over-size answers are streamed instead of refused.
+
+## 0.2
+
+- Background hosting that keeps the listener alive with low-power location
+  updates and a renewed background-task lease.
+
+## 0.1
+
+- HTTP/1.1 server on Network.framework, serving `Documents/www` at `localhost`
+  and over the local network.
+- WKWebView browser with JIT JavaScript, WebGL 2, WebAssembly and workers.
+- Files tab with import, create, rename, delete and an in-place text editor.
+- Bonjour advertising, LAN address and QR sharing.
