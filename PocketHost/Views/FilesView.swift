@@ -382,8 +382,7 @@ struct DirectoryListView: View {
             for url in urls {
                 let scoped = url.startAccessingSecurityScopedResource()
                 do {
-                    try store.files.importItem(at: url, into: directory)
-                    imported += 1
+                    imported += try store.files.importItem(at: url, into: directory)
                 } catch {
                     banner = "Could not import \(url.lastPathComponent): \(error.localizedDescription)"
                 }
@@ -393,7 +392,7 @@ struct DirectoryListView: View {
             if imported > 0 {
                 store.refreshStats()
                 reload()
-                banner = imported == 1 ? "Imported 1 item" : "Imported \(imported) items"
+                banner = imported == 1 ? "Imported 1 file" : "Imported \(imported) files"
             }
         }
     }

@@ -2,6 +2,11 @@
 
 ## 0.6
 
+- Importing a `.zip` unpacks it into a folder named after the archive, with
+  stored and deflated entries read straight from the container, a wrapping folder
+  stripped, and `.`, `..` and `__MACOSX` entries skipped. Titles change to match
+  the files it wrote.
+
 - Settings lists the account's existing GitHub Pages sites. View opens one in the
   browser; Edit downloads its files into the hosted folder so they can be changed
   here and published back to the same repository.

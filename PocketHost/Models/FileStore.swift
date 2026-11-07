@@ -271,7 +271,17 @@ final class FileStore: ObservableObject {
     }
 
     /// Copies a file or a whole folder picked in the Files app into `directory`.
-    func importItem(at source: URL, into directory: URL) throws {
+    /// A zip archive is unpacked into a folder named after it instead, and the
+    /// number of files that landed in the folder is returned.
+    @discardableResult
+    func importItem(at source: URL, into directory: URL) throws -> Int {
+        if source.pathExtension.lowercased() == "zip" {
+            let folder = uniqueURL(for: source.deletingPathExtension().lastPathComponent, in: directory)
+            let count = try ZipArchive.extract(source, into: folder)
+            bump()
+            return count
+        }
+
         let destination = uniqueURL(for: source.lastPathComponent, in: directory)
         do {
             try FileManager.default.copyItem(at: source, to: destination)
@@ -279,6 +289,7 @@ final class FileStore: ObservableObject {
             throw FileStoreError.writeFailed
         }
         bump()
+        return 1
     }
 
     // MARK: - Seeding

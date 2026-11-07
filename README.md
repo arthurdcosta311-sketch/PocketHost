@@ -23,7 +23,9 @@ else on the network — and it ships with a full browser to look at the result.
   the status bar, so a game or a video fills the screen; a small floating button
   brings the chrome back.
 - **Files tab**: browse the hosted folder, import files or whole folders from the
-  Files app, create files and folders, and edit text-based files in place.
+  Files app, create files and folders, and edit text-based files in place. A
+  `.zip` dropped in is unpacked into a folder named after it, so a site can be
+  imported in one go.
 - **Shareable address**: the app shows the LAN URL and a QR code so another phone
   or a laptop can open the same site.
 - **Reachable from anywhere**: asks the router for a TCP port mapping (NAT-PMP,
