@@ -30,10 +30,25 @@ else on the network — and it ships with a full browser to look at the result.
 pages are seeded on first launch: a landing page, a WebGL shader demo, and a
 capability lab that measures JIT throughput, WebAssembly, workers and viewport.
 
+## Background hosting
+
+iOS suspends a backgrounded app within seconds, which would drop every request.
+PocketHost stays out of that suspended state with **low-power background location
+updates** (the coarsest accuracy, 500 m movement filter, "While Using" permission)
+plus a rolling background-task lease that is renewed every time a request is
+served. No location is ever stored, used for anything, or sent anywhere — it
+exists only to keep the listener alive.
+
+Hosting therefore keeps answering with the screen off, until you tap **Stop
+server** or iOS ends the app. The whole thing is switchable in Settings →
+Background, along with whether the screen itself stays awake while hosting.
+
 ## Limits worth knowing
 
-- iOS suspends an app in the background, so hosting pauses when PocketHost is not
-  on screen. The screen is kept awake while the server is running.
+- Background hosting needs the Location background mode and location permission.
+  App Store review may ask about it, since it is a background-location use.
+- If location permission is denied, the server still runs while the app is on
+  screen, and iOS may pause it shortly after you switch away.
 - The server is reachable on the local network only. Serving to the public
   internet would need a tunnel or port forwarding on a router, which an app
   cannot set up by itself.

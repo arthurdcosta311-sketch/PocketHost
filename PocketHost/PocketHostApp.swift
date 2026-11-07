@@ -11,6 +11,8 @@ struct PocketHostApp: App {
     @StateObject private var router = AppRouter()
     @StateObject private var browser = BrowserModel()
 
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -21,6 +23,9 @@ struct PocketHostApp: App {
                     if let url = URL(string: store.localURLString) {
                         browser.setHome(url)
                     }
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    store.handleScenePhase(phase)
                 }
                 .onChange(of: store.port) { _, newValue in
                     if let url = URL(string: "http://localhost:\(newValue)/") {

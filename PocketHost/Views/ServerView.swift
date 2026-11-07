@@ -17,6 +17,7 @@ struct ServerView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     statusCard
+                    backgroundCard
                     addressesCard
                     statsRow
                     activityCard
@@ -309,10 +310,88 @@ struct ServerView: View {
         )
     }
 
+    // MARK: - Background
+
+    private var backgroundCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: backgroundIcon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(backgroundTint)
+                .frame(width: 34, height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(backgroundTint.opacity(0.14))
+                )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Background hosting")
+                    .font(.footnote.weight(.semibold))
+
+                Text(backgroundDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 6)
+
+            if store.background.needsAttention {
+                Button("Allow") { store.background.requestPermission() }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.borderless)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
+    private var backgroundDetail: String {
+        guard store.backgroundHosting else {
+            return "Off. iOS pauses the server once PocketHost leaves the screen."
+        }
+
+        switch store.background.state {
+        case .active:
+            return "On. The server keeps answering with the screen off, until you stop it."
+        case .needsPermission:
+            return "Allow Location so iOS keeps PocketHost running in the background."
+        case .denied:
+            return "Location is off for PocketHost, so iOS can pause the server. Enable it in Settings."
+        case .limited:
+            return "Running on a short lease. iOS may pause the server."
+        case .off:
+            return "Starts together with the server."
+        }
+    }
+
+    private var backgroundIcon: String {
+        guard store.backgroundHosting else { return "moon.zzz.fill" }
+
+        switch store.background.state {
+        case .active: return "location.fill"
+        case .needsPermission, .denied, .limited: return "exclamationmark.triangle.fill"
+        case .off: return "moon.zzz.fill"
+        }
+    }
+
+    private var backgroundTint: Color {
+        guard store.backgroundHosting else { return Color.secondary }
+
+        switch store.background.state {
+        case .active: return Color.accentColor
+        case .needsPermission, .denied, .limited: return Color.orange
+        case .off: return Color.secondary
+        }
+    }
+
     // MARK: - Footnote
 
     private var footnote: some View {
-        Text("Serving from On My iPhone › PocketHost › www. iOS pauses the server while PocketHost is in the background, so keep the app open while hosting.")
+        Text("Serving from On My iPhone › PocketHost › www. Background hosting keeps the listener alive through low-power location updates. Stopping the server or force-quitting the app ends it.")
             .font(.caption2)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)

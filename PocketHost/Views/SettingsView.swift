@@ -38,6 +38,27 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Keep hosting in the background", isOn: $store.backgroundHosting)
+                    Toggle("Keep the screen awake while hosting", isOn: $store.keepScreenAwake)
+
+                    if store.backgroundHosting {
+                        LabeledContent("Background mode", value: backgroundStateText)
+
+                        if store.background.needsAttention {
+                            Button(store.background.authorizationStatus == .denied
+                                   ? "Open Location settings"
+                                   : "Allow location access") {
+                                store.background.requestPermission()
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Background")
+                } footer: {
+                    Text("iOS suspends a backgrounded app within seconds, which would drop every request. PocketHost asks for \u{201C}While Using\u{201D} location only to stay out of that suspended state: updates are the coarsest available (about a kilometre apart) and no location is stored or sent anywhere. Hosting keeps answering with the screen off until you stop the server or iOS ends the app. This needs the Location background mode, and App Store review may ask you about it.")
+                }
+
+                Section {
                     LabeledContent("Hosted folder", value: "www")
                     LabeledContent("Files", value: "\(store.fileCount)")
                     Button("Restore sample sites") { showingRestore = true }
@@ -96,6 +117,16 @@ struct SettingsView: View {
                 try? await Task.sleep(for: .seconds(2))
                 withAnimation { restoreNote = nil }
             }
+        }
+    }
+
+    private var backgroundStateText: String {
+        switch store.background.state {
+        case .off: return "Off"
+        case .active: return "On · low-power location"
+        case .needsPermission: return "Waiting for permission"
+        case .denied: return "Denied"
+        case .limited: return "Limited"
         }
     }
 
