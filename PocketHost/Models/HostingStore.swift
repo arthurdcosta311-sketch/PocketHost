@@ -468,6 +468,49 @@ final class HostingStore: ObservableObject {
 
     // MARK: - Publishing
 
+    /// Every GitHub Pages site the linked token can see.
+    @Published private(set) var sites: [WebPublisher.Site] = []
+    @Published private(set) var sitesLoading = false
+    @Published private(set) var sitesError: String?
+
+    func refreshSites() {
+        guard let token = ApiKeyManager.shared.get(key: "GITHUB_PUBLISH_TOKEN"),
+              !sitesLoading
+        else { return }
+
+        sitesLoading = true
+        sitesError = nil
+
+        Task { @MainActor in
+            do {
+                sites = try await publisher.sites(token: token)
+            } catch {
+                sitesError = error.localizedDescription
+            }
+            sitesLoading = false
+        }
+    }
+
+    /// Brings a published site's files into the hosted folder so they can be
+    /// edited here; the next publish writes them back to the same repository.
+    func edit(_ site: WebPublisher.Site) {
+        guard let token = ApiKeyManager.shared.get(key: "GITHUB_PUBLISH_TOKEN") else { return }
+
+        Task { @MainActor in
+            publisher.noteWorking("Downloading \(site.displayName)…")
+            do {
+                let downloaded = try await publisher.download(site: site, token: token)
+                try files.replaceAll(with: downloaded)
+                refreshStats()
+                publishRepo = site.repo
+                publishUserSite = site.isUserSite
+                publisher.noteFinished(url: site.url)
+            } catch {
+                publisher.noteFailed(error.localizedDescription)
+            }
+        }
+    }
+
     /// Copies the hosted folder to a public GitHub repository and turns Pages
     /// on, which gives the site an address that works without any router setup.
     func publishSite() {

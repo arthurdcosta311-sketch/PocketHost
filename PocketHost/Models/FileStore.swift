@@ -177,6 +177,39 @@ final class FileStore: ObservableObject {
         bump()
     }
 
+    /// Replaces everything in the hosted folder with this set of files, used
+    /// when a published site is brought back for editing.
+    func replaceAll(with files: [(path: String, data: Data)]) throws {
+        let manager = FileManager.default
+        let base = root.standardizedFileURL.path
+
+        if let contents = try? manager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil,
+            options: []
+        ) {
+            for url in contents {
+                try? manager.removeItem(at: url)
+            }
+        }
+
+        for file in files {
+            let url = root.appendingPathComponent(file.path).standardizedFileURL
+            guard url.path.hasPrefix(base + "/") else { continue }
+
+            try? manager.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+
+            guard (try? file.data.write(to: url, options: .atomic)) != nil else {
+                throw FileStoreError.writeFailed
+            }
+        }
+
+        bump()
+    }
+
     func createFile(named name: String, in directory: URL, content: String = FileStore.htmlTemplate) throws -> URL {
         var clean = sanitize(name)
         guard !clean.isEmpty else { throw FileStoreError.invalidName }

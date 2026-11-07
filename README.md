@@ -35,6 +35,9 @@ else on the network — and it ships with a full browser to look at the result.
   `https` address that works from anywhere without any network setup. Choose the
   account's own `username.github.io` site, which serves at the root of the
   address, or a named repository. `WebPublisher` does it over the GitHub REST API.
+- **Your sites, listed**: Settings reads every repository of the account that has
+  GitHub Pages on. View opens one in the browser; Edit downloads its files into
+  the hosted folder so you can change them here and publish them back.
 - **Each account makes its own token**: the token is created on GitHub with the
   repo scope and kept in this phone's keychain, so nothing is shared between
   people using the app.

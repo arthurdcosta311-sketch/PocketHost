@@ -33,6 +33,18 @@ final class WebPublisher: ObservableObject {
         var errorDescription: String? { message }
     }
 
+    struct Site: Identifiable, Equatable {
+        let owner: String
+        let repo: String
+        let url: String
+        let isUserSite: Bool
+        let updated: Date?
+
+        var id: String { "\(owner)/\(repo)" }
+        var displayName: String { isUserSite ? "\(owner).github.io" : repo }
+        var detail: String { "\(owner)/\(repo)" }
+    }
+
     @Published private(set) var state: State = .idle
     @Published private(set) var lastPublished: Date?
 
@@ -310,6 +322,128 @@ final class WebPublisher: ObservableObject {
         }
 
         return (nil, "GitHub is still building the site (\(lastStatus)). Open the published address in a moment.")
+    }
+
+    // MARK: - Existing sites
+
+    /// Every repository of the account that has GitHub Pages turned on.
+    func sites(token: String) async throws -> [Site] {
+        let (data, status) = try await request(
+            "GET",
+            "https://api.github.com/user/repos?per_page=100&sort=pushed&affiliation=owner",
+            token: token,
+            body: nil
+        )
+
+        guard status == 200,
+              let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else {
+            throw failure(status, doing: "list your repositories")
+        }
+
+        let formatter = ISO8601DateFormatter()
+        var sites: [Site] = []
+
+        for item in list where (item["has_pages"] as? Bool) == true {
+            guard let repo = item["name"] as? String,
+                  let owner = (item["owner"] as? [String: Any])?["login"] as? String
+            else { continue }
+
+            let handle = owner.lowercased()
+            let isUserSite = repo.lowercased() == "\(handle).github.io"
+            let url = isUserSite
+                ? "https://\(handle).github.io/"
+                : "https://\(handle).github.io/\(repo)/"
+            let updated = (item["pushed_at"] as? String).flatMap { formatter.date(from: $0) }
+
+            sites.append(Site(owner: owner, repo: repo, url: url, isUserSite: isUserSite, updated: updated))
+        }
+
+        return sites.sorted { lhs, rhs in
+            if lhs.isUserSite != rhs.isUserSite { return lhs.isUserSite }
+            return (lhs.updated ?? .distantPast) > (rhs.updated ?? .distantPast)
+        }
+    }
+
+    /// Downloads a site's files so they can be edited in the hosted folder.
+    func download(site: Site, token: String) async throws -> [(path: String, data: Data)] {
+        let (repoData, repoStatus) = try await request(
+            "GET",
+            "https://api.github.com/repos/\(site.owner)/\(site.repo)",
+            token: token,
+            body: nil
+        )
+
+        guard repoStatus == 200, let branch = branch(from: repoData) else {
+            throw failure(repoStatus, doing: "read \(site.repo)")
+        }
+
+        let (treeData, treeStatus) = try await request(
+            "GET",
+            "https://api.github.com/repos/\(site.owner)/\(site.repo)/git/trees/\(branch)?recursive=1",
+            token: token,
+            body: nil
+        )
+
+        guard treeStatus == 200,
+              let json = try? JSONSerialization.jsonObject(with: treeData) as? [String: Any],
+              let tree = json["tree"] as? [[String: Any]]
+        else {
+            throw failure(treeStatus, doing: "read the files in \(site.repo)")
+        }
+
+        var output: [(path: String, data: Data)] = []
+        var total = 0
+
+        for item in tree {
+            guard (item["type"] as? String) == "blob",
+                  let path = item["path"] as? String,
+                  !path.hasPrefix("."),
+                  !path.contains("/.")
+            else { continue }
+
+            guard ((item["size"] as? Int) ?? 0) <= 10 * 1024 * 1024 else { continue }
+
+            let (fileData, fileStatus) = try await request(
+                "GET",
+                "https://api.github.com/repos/\(site.owner)/\(site.repo)/contents/\(escaped(path))?ref=\(branch)",
+                token: token,
+                body: nil
+            )
+
+            guard fileStatus == 200,
+                  let fileJSON = try? JSONSerialization.jsonObject(with: fileData) as? [String: Any],
+                  let content = fileJSON["content"] as? String,
+                  let decoded = Data(base64Encoded: content.replacingOccurrences(of: "\n", with: ""))
+            else { continue }
+
+            total += decoded.count
+            output.append((path, decoded))
+
+            if output.count >= 100 || total > 40 * 1024 * 1024 { break }
+        }
+
+        guard !output.isEmpty else {
+            throw PublishError(message: "\(site.repo) has no files to bring back.")
+        }
+
+        return output
+    }
+
+    @MainActor
+    func noteWorking(_ message: String) {
+        state = .working(message)
+    }
+
+    @MainActor
+    func noteFinished(url: String) {
+        lastPublished = Date()
+        state = .done(url: url)
+    }
+
+    @MainActor
+    func noteFailed(_ message: String) {
+        state = .failed(message)
     }
 
     // MARK: - Requests

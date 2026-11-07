@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var tokenText = ""
     @State private var showingRestore = false
     @State private var restoreNote: String?
+    @State private var siteToEdit: WebPublisher.Site?
 
     var body: some View {
         NavigationStack {
@@ -107,6 +108,56 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    if store.sitesLoading {
+                        HStack {
+                            Text("Looking for your sites…")
+                            Spacer()
+                            ProgressView()
+                        }
+                    } else if store.sites.isEmpty {
+                        Text(store.sitesError ?? "No GitHub Pages sites yet. Publish one and it appears here.")
+                            .font(.footnote)
+                            .foregroundStyle(store.sitesError == nil ? Color.secondary : Color.red)
+                    } else {
+                        ForEach(store.sites) { site in
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(site.displayName)
+                                    .font(.subheadline.weight(.semibold))
+
+                                Text(site.url)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+
+                                HStack(spacing: 18) {
+                                    Button("View") {
+                                        if let url = URL(string: site.url) {
+                                            router.openInBrowser(url)
+                                        }
+                                    }
+
+                                    Button("Edit") {
+                                        siteToEdit = site
+                                    }
+                                }
+                                .font(.footnote)
+                            }
+                            .padding(.vertical, 3)
+                        }
+                    }
+
+                    Button("Refresh sites") {
+                        store.refreshSites()
+                    }
+                    .disabled(store.sitesLoading)
+                } header: {
+                    Text("Your GitHub Pages sites")
+                } footer: {
+                    Text("Edit brings a site's files into the hosted folder so you can change them here; the next publish writes them back to that same repository. View opens it in the browser.")
+                }
+
+                Section {
                     Toggle("Use my username.github.io site", isOn: $store.publishUserSite)
 
                     if !store.publishUserSite {
@@ -189,6 +240,23 @@ struct SettingsView: View {
             }
             .onAppear {
                 portText = String(store.port)
+                if store.sites.isEmpty {
+                    store.refreshSites()
+                }
+            }
+            .alert("Replace the hosted files?", isPresented: Binding(
+                get: { siteToEdit != nil },
+                set: { if !$0 { siteToEdit = nil } }
+            )) {
+                Button("Replace", role: .destructive) {
+                    if let site = siteToEdit {
+                        store.edit(site)
+                    }
+                    siteToEdit = nil
+                }
+                Button("Cancel", role: .cancel) { siteToEdit = nil }
+            } message: {
+                Text("Your hosted folder will be replaced with a copy of \(siteToEdit?.displayName ?? "the site"), so you can edit it here. Publishing then writes it back to that repository.")
             }
             .alert("Restore sample sites?", isPresented: $showingRestore) {
                 Button("Restore", role: .destructive) {

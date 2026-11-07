@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6
+
+- Settings lists the account's existing GitHub Pages sites. View opens one in the
+  browser; Edit downloads its files into the hosted folder so they can be changed
+  here and published back to the same repository.
+
 ## 0.5
 
 - Publish to the web: copies the hosted folder to GitHub and turns GitHub Pages
