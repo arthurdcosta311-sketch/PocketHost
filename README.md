@@ -17,6 +17,9 @@ else on the network — and it ships with a full browser to look at the result.
   Source, config and container files count too — `.json`, `.js`, `.ts`, `.css`,
   `.yml`, `.toml`, `.rs`, `.go`, `.tf`, `Dockerfile` and the rest are served with
   sensible types and open in the editor even when they carry no extension.
+  Folders are just folders, whatever they are called (`assets`, `css`, `js`,
+  `json` are all fine), and the new-file menu makes a page, stylesheet, script or
+  JSON file from a fitting template.
 - **A real browser engine**: WKWebView renders the hosted pages with
   JIT-compiled JavaScript, WebGL 2 on the GPU, WebAssembly, Web Workers and
   OffscreenCanvas. Its layer is set up for extended dynamic range, and served

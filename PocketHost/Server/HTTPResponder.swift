@@ -132,7 +132,7 @@ struct HTTPResponder {
     // MARK: - Files
 
     private func fileResponse(at url: URL, request: HTTPRequest) -> HTTPResponse {
-        let mimeType = MIMEType.type(forExtension: url.pathExtension)
+        let mimeType = MIMEType.type(forPath: url.path)
 
         let total = Self.fileSize(at: url)
         let modified = Self.modificationDate(at: url)

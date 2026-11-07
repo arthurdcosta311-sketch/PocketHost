@@ -254,7 +254,16 @@ final class FileStore: ObservableObject {
     func createFile(named name: String, in directory: URL, content: String? = nil) throws -> URL {
         var clean = sanitize(name)
         guard !clean.isEmpty else { throw FileStoreError.invalidName }
-        if !clean.contains(".") { clean += ".html" }
+
+        // A name with no dot is only assumed to be a page when it is not one of
+        // the text files that have never carried an extension.
+        if !clean.contains(".") {
+            let lower = clean.lowercased()
+            let extensionless = Self.editableNames.contains(lower)
+                || lower.hasPrefix("dockerfile")
+                || lower.hasPrefix("containerfile")
+            if !extensionless { clean += ".html" }
+        }
 
         let url = directory.appendingPathComponent(clean)
         guard !FileManager.default.fileExists(atPath: url.path) else {

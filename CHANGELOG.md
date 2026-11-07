@@ -2,6 +2,19 @@
 
 ## 0.6
 
+- Fixed a crash: the MIME table had `.flac` twice, and a repeated key in a
+  dictionary literal traps at runtime — which the server hit as soon as it
+  served the first file after launch. The table is built from pairs with
+  duplicates ignored, and the same list now covers CSS, JSON, JavaScript,
+  config and source files.
+- Content type is worked out from the whole file name, so `Dockerfile` and
+  `Makefile` are served as text instead of a download.
+- New-file menu offers a page, a stylesheet, a script or a JSON file, each
+  starting from a fitting template, and creating `Dockerfile` or `Makefile` no
+  longer renames it to `.html`.
+- Folders named `assets`, `css`, `js`, `json` and `fonts` get their own icons,
+  and folder navigation works the same whatever they are called.
+
 - More kinds of file work throughout: JSON, JavaScript, TypeScript, stylesheet
   flavours, config files and source files are editable and served with proper
   content types, and files with no extension — `Dockerfile`, `Makefile`,

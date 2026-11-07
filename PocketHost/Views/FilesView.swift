@@ -52,13 +52,13 @@ struct DirectoryListView: View {
     }
 
     enum NamePrompt: Identifiable {
-        case newFile
+        case newFile(String)
         case newFolder
         case rename(FileStore.Entry)
 
         var id: String {
             switch self {
-            case .newFile: return "newFile"
+            case .newFile(let name): return "newFile-\(name)"
             case .newFolder: return "newFolder"
             case .rename(let entry): return "rename-\(entry.id)"
             }
@@ -66,7 +66,7 @@ struct DirectoryListView: View {
 
         var title: String {
             switch self {
-            case .newFile: return "New file"
+            case .newFile(_): return "New file"
             case .newFolder: return "New folder"
             case .rename: return "Rename"
             }
@@ -74,7 +74,7 @@ struct DirectoryListView: View {
 
         var message: String {
             switch self {
-            case .newFile: return "Name it page.html, app.css, app.js or data.json — or anything else, such as Dockerfile."
+            case .newFile(let name): return "A \(name) file is created in this folder."
             case .newFolder: return "Folders become part of the URL path."
             case .rename: return "Give the item a new name."
             }
@@ -118,8 +118,17 @@ struct DirectoryListView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button { startPrompt(.newFile) } label: {
-                        Label("New file", systemImage: "doc.badge.plus")
+                    Button { startPrompt(.newFile("page.html")) } label: {
+                        Label("New page (HTML)", systemImage: "doc.badge.plus")
+                    }
+                    Button { startPrompt(.newFile("style.css")) } label: {
+                        Label("New stylesheet (CSS)", systemImage: "paintbrush")
+                    }
+                    Button { startPrompt(.newFile("app.js")) } label: {
+                        Label("New script (JS)", systemImage: "curlybraces")
+                    }
+                    Button { startPrompt(.newFile("data.json")) } label: {
+                        Label("New data (JSON)", systemImage: "list.bullet.rectangle")
                     }
                     Button { startPrompt(.newFolder) } label: {
                         Label("New folder", systemImage: "folder.badge.plus")
@@ -332,7 +341,7 @@ struct DirectoryListView: View {
     private func startPrompt(_ kind: NamePrompt) {
         promptText = ""
         switch kind {
-        case .newFile: promptText = "page.html"
+        case .newFile(let name): promptText = name
         case .newFolder: promptText = "site"
         case .rename(let entry): promptText = entry.name
         }
@@ -345,7 +354,7 @@ struct DirectoryListView: View {
 
         do {
             switch prompt {
-            case .newFile:
+            case .newFile(_):
                 let url = try store.files.createFile(named: name, in: directory)
                 if let entry = store.files.entry(for: url) {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -430,7 +439,16 @@ struct DirectoryListView: View {
     // MARK: - Icons
 
     private func iconName(for entry: FileStore.Entry) -> String {
-        if entry.isDirectory { return "folder.fill" }
+        if entry.isDirectory {
+            switch entry.name.lowercased() {
+            case "css", "styles", "stylesheets": return "paintbrush.fill"
+            case "js", "scripts": return "curlybraces"
+            case "assets", "images", "img", "media": return "photo.on.rectangle.angled"
+            case "json", "data": return "list.bullet.rectangle"
+            case "fonts": return "textformat"
+            default: return "folder.fill"
+            }
+        }
 
         let name = entry.name.lowercased()
         if name.hasPrefix("dockerfile") || name.hasPrefix("containerfile") {
@@ -458,7 +476,15 @@ struct DirectoryListView: View {
     }
 
     private func iconColor(for entry: FileStore.Entry) -> Color {
-        if entry.isDirectory { return .blue }
+        if entry.isDirectory {
+            switch entry.name.lowercased() {
+            case "css", "styles", "stylesheets": return .indigo
+            case "js", "scripts": return .yellow
+            case "assets", "images", "img", "media": return .pink
+            case "json", "data": return .purple
+            default: return .blue
+            }
+        }
 
         let name = entry.name.lowercased()
         if name.hasPrefix("dockerfile") || name.hasPrefix("containerfile") {
