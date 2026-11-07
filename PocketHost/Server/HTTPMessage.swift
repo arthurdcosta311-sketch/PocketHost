@@ -69,6 +69,7 @@ struct HTTPStatus: Equatable {
     static let ok = HTTPStatus(code: 200, reason: "OK")
     static let partialContent = HTTPStatus(code: 206, reason: "Partial Content")
     static let movedPermanently = HTTPStatus(code: 301, reason: "Moved Permanently")
+    static let notModified = HTTPStatus(code: 304, reason: "Not Modified")
     static let badRequest = HTTPStatus(code: 400, reason: "Bad Request")
     static let forbidden = HTTPStatus(code: 403, reason: "Forbidden")
     static let notFound = HTTPStatus(code: 404, reason: "Not Found")

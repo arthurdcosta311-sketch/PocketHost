@@ -20,8 +20,20 @@ struct HTTPLogEntry: Identifiable, Equatable {
     let bytes: Int64
     let date: Date
     let client: String
+    let origin: RequestOrigin
+    /// The answer told the client it may keep this copy on its own storage.
+    let storesOnDevice: Bool
 
-    init(method: String, path: String, status: Int, bytes: Int64, date: Date = Date(), client: String) {
+    init(
+        method: String,
+        path: String,
+        status: Int,
+        bytes: Int64,
+        date: Date = Date(),
+        client: String,
+        origin: RequestOrigin = .remote,
+        storesOnDevice: Bool = false
+    ) {
         self.id = UUID()
         self.method = method
         self.path = path
@@ -29,7 +41,16 @@ struct HTTPLogEntry: Identifiable, Equatable {
         self.bytes = bytes
         self.date = date
         self.client = client
+        self.origin = origin
+        self.storesOnDevice = storesOnDevice
     }
+}
+
+/// Who asked for the document: another machine on the network, or the
+/// on-device runner keeping the runtime warm.
+enum RequestOrigin: String {
+    case remote
+    case device
 }
 
 enum ServerEvent {
@@ -63,6 +84,8 @@ final class HTTPServer {
         var allowsCORS: Bool
         var advertisesBonjour: Bool
         var displayName: String
+        /// Let the device that fetched a file keep it in its own cache.
+        var cachesOnDevice: Bool = true
     }
 
     private let queue = DispatchQueue(label: "com.pockethost.http", qos: .userInitiated)
@@ -180,7 +203,8 @@ final class HTTPConnection {
         self.responder = HTTPResponder(
             root: configuration.root,
             directoryListing: configuration.servesDirectoryListings,
-            cors: configuration.allowsCORS
+            cors: configuration.allowsCORS,
+            cachesOnDevice: configuration.cachesOnDevice
         )
         self.client = String(describing: connection.endpoint)
     }
@@ -282,39 +306,52 @@ final class HTTPConnection {
         let head = response.serializedHead(serverName: configuration.displayName)
         let isHeadRequest = request?.method == "HEAD"
 
-        connection.send(content: head, completion: .contentProcessed { [weak self] error in
+        switch response.body {
+        case .empty:
+            send(head) { self.finish() }
+
+        case .data(let data):
+            if isHeadRequest || data.isEmpty {
+                send(head) { self.finish() }
+            } else if data.count <= 512 * 1024 {
+                // One write for the whole response: no extra round trip through
+                // the queue, so small pages and assets land in a single pass.
+                var payload = head
+                payload.append(data)
+                send(payload) { self.finish() }
+            } else {
+                send(head) {
+                    self.connection.send(content: data, completion: .contentProcessed { [weak self] error in
+                        guard let self else { return }
+                        if error != nil {
+                            self.close()
+                            return
+                        }
+                        self.finish()
+                    })
+                }
+            }
+
+        case .file(let handle, let length):
+            if isHeadRequest {
+                try? handle.close()
+                send(head) { self.finish() }
+                return
+            }
+            send(head) {
+                self.stream(handle: handle, remaining: length)
+            }
+        }
+    }
+
+    private func send(_ data: Data, completion: @escaping () -> Void) {
+        connection.send(content: data, completion: .contentProcessed { [weak self] error in
             guard let self else { return }
             if error != nil {
                 self.close()
                 return
             }
-
-            switch response.body {
-            case .empty:
-                self.finish()
-
-            case .data(let data):
-                if isHeadRequest || data.isEmpty {
-                    self.finish()
-                    return
-                }
-                self.connection.send(content: data, completion: .contentProcessed { [weak self] error in
-                    guard let self else { return }
-                    if error != nil {
-                        self.close()
-                        return
-                    }
-                    self.finish()
-                })
-
-            case .file(let handle, let length):
-                if isHeadRequest {
-                    try? handle.close()
-                    self.finish()
-                    return
-                }
-                self.stream(handle: handle, remaining: length)
-            }
+            completion()
         })
     }
 
@@ -358,12 +395,17 @@ final class HTTPConnection {
         self.pending = nil
 
         if let request = pending.request {
+            let origin: RequestOrigin = request.headers["x-pockethost-device-run"] != nil ? .device : .remote
+            let control = pending.response.headers["Cache-Control"]?.lowercased() ?? ""
+            let storesOnDevice = pending.response.status == .ok && control.contains("max-age=")
             onLog?(HTTPLogEntry(
                 method: request.method,
                 path: request.target,
                 status: pending.response.status.code,
                 bytes: pending.response.contentLength,
-                client: client
+                client: client,
+                origin: origin,
+                storesOnDevice: storesOnDevice
             ))
         }
 

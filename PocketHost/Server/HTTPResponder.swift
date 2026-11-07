@@ -13,6 +13,10 @@ struct HTTPResponder {
     let directoryListing: Bool
     let cors: Bool
 
+    /// Whether the device that fetched a file is allowed to keep it. On, the
+    /// bytes live in the client's own cache instead of on this phone.
+    let cachesOnDevice: Bool
+
     private enum RangeResult {
         case satisfiable(Int64, Int64)
         case unsatisfiable
@@ -105,14 +109,27 @@ struct HTTPResponder {
     private func fileResponse(at url: URL, request: HTTPRequest) -> HTTPResponse {
         let mimeType = MIMEType.type(forExtension: url.pathExtension)
 
+        let total = Self.fileSize(at: url)
+        let modified = Self.modificationDate(at: url)
+        let etag = "\"\(total)-\(Int(modified.timeIntervalSince1970))\""
+
         var headers: [String: String] = [
             "Content-Type": mimeType,
-            "Cache-Control": "no-store",
-            "Accept-Ranges": "bytes"
+            "Cache-Control": Self.cacheControl(mimeType: mimeType, onDevice: cachesOnDevice),
+            "Accept-Ranges": "bytes",
+            "ETag": etag,
+            "Last-Modified": Self.httpDate(modified)
         ]
         if cors { headers["Access-Control-Allow-Origin"] = "*" }
 
-        let total = Self.fileSize(at: url)
+        // A client that already holds this copy gets nothing but a 304, which
+        // is what makes repeat navigations feel instant.
+        if request.headers["range"] == nil,
+           Self.isNotModified(request: request, etag: etag, modified: modified) {
+            headers["Content-Length"] = "0"
+            return HTTPResponse(status: .notModified, headers: headers, body: .empty)
+        }
+
         var status = HTTPStatus.ok
         var offset: Int64 = 0
         var length = total
@@ -133,7 +150,41 @@ struct HTTPResponder {
             }
         }
 
+        // Anything whose answer would need more than the memory ceiling is
+        // spotted from its length before a byte is read and reported against
+        // the live footprint. Byte-range requests ask for a slice, so only the
+        // full document is measured. Files are streamed either way, so the
+        // answer never costs the app that memory.
+        if length > MemoryGuard.ceilingBytes {
+            MemoryGuard.shared.report(path: request.path, bytes: length)
+
+            if MemoryGuard.shared.refusesOversized {
+                return Self.message(
+                    .forbidden,
+                    title: "Over the memory ceiling",
+                    detail: "\(url.lastPathComponent) is \(FileStore.sizeText(length)), larger than the 512 MB PocketHost keeps in memory. Turn off \u{201C}Block over-size responses\u{201D} in Settings to stream it instead."
+                )
+            }
+        }
+
         headers["Content-Length"] = String(length)
+
+        // A page is where its runtimes become knowable. They travel out as
+        // preload hints, so the device that asked for the page downloads them
+        // straight away and keeps them in its own cache: nothing is stored or
+        // copied here.
+        if offset == 0,
+           length == total,
+           total > 0,
+           mimeType.hasPrefix("text/html"),
+           let document = RuntimePreloader.shared.preparedDocument(at: url, documentPath: request.path, root: root) {
+            headers["Content-Length"] = String(document.count)
+            return HTTPResponse(
+                status: .ok,
+                headers: headers,
+                body: request.method == "HEAD" ? .empty : .data(document)
+            )
+        }
 
         guard request.method != "HEAD" else {
             return HTTPResponse(status: status, headers: headers, body: .empty)
@@ -258,8 +309,51 @@ struct HTTPResponder {
 
     // MARK: - Helpers
 
+    /// Pages always revalidate, so an edit shows up on the next load. Every
+    /// other file is kept by the device that fetched it: a repeat navigation
+    /// within a minute asks for nothing at all, and after that the client shows
+    /// its own copy straight away and revalidates in the background.
+    static func cacheControl(mimeType: String, onDevice: Bool) -> String {
+        guard onDevice else { return "no-store" }
+        if mimeType.hasPrefix("text/html") { return "no-cache" }
+        return "public, max-age=60, stale-while-revalidate=86400"
+    }
+
     private static func fileSize(at url: URL) -> Int64 {
         let values = try? url.resourceValues(forKeys: [.fileSizeKey])
         return Int64(values?.fileSize ?? 0)
     }
+
+    private static func modificationDate(at url: URL) -> Date {
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+        return values?.contentModificationDate ?? .distantPast
+    }
+
+    private static func httpDate(_ date: Date) -> String {
+        httpDateFormatter.string(from: date)
+    }
+
+    private static func isNotModified(request: HTTPRequest, etag: String, modified: Date) -> Bool {
+        if let ifNoneMatch = request.headers["if-none-match"] {
+            let tags = ifNoneMatch
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            if tags.contains(etag) || tags.contains("*") { return true }
+        }
+
+        if let ifModifiedSince = request.headers["if-modified-since"],
+           let date = httpDateFormatter.date(from: ifModifiedSince) {
+            return modified.timeIntervalSince1970 <= date.timeIntervalSince1970
+        }
+
+        return false
+    }
+
+    private static let httpDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        return formatter
+    }()
 }

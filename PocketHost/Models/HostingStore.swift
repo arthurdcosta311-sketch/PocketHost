@@ -70,12 +70,60 @@ final class HostingStore: ObservableObject {
         }
     }
 
+    /// Refuse any single response that would need more than the 512 MB ceiling
+    /// in memory. Turning it off keeps the detection but streams instead.
+    @Published var refuseOversized: Bool {
+        didSet {
+            persist()
+            MemoryGuard.shared.refusesOversized = refuseOversized
+        }
+    }
+
+    /// Run the hosted site on this device when nobody else is asking for it.
+    @Published var deviceRunnerEnabled: Bool {
+        didSet {
+            persist()
+            applyRunnerPolicy()
+        }
+    }
+
+    /// Let the devices that connect keep the files they fetched in their own
+    /// cache, so the assets live there rather than on this phone.
+    @Published var cachesOnDevice: Bool {
+        didSet {
+            persist()
+            if isRunning { restart() }
+        }
+    }
+
+    /// Detect the runtimes a page needs and tell the client to fetch them
+    /// before it asks for them one by one.
+    @Published var prefetchRuntimes: Bool {
+        didSet {
+            persist()
+            RuntimePreloader.shared.isEnabled = prefetchRuntimes
+            if !prefetchRuntimes {
+                RuntimePreloader.shared.resetHistory()
+            }
+        }
+    }
+
+    @Published private(set) var guardDetections: [MemoryGuard.Detection] = []
+    @Published private(set) var deviceRunCount = 0
+    @Published private(set) var lastDeviceRun: Date?
+    @Published private(set) var prefetchSummaries: [RuntimePreloader.Summary] = []
+    @Published private(set) var preloadedBytes: Int64 = 0
+    @Published private(set) var deviceStoredBytes: Int64 = 0
+    @Published private(set) var deviceStoredCount = 0
+
     let files: FileStore
     let background = BackgroundKeeper()
 
     private let server: HTTPServer
+    private let runner = LocalRunner()
     private let defaults = UserDefaults.standard
     private var cancellables: Set<AnyCancellable> = []
+    private var lastRemoteRequestAt: Date?
 
     /// Whether the user asked for the server to be up, independently of
     /// whether iOS has got round to telling us it really is.
@@ -89,6 +137,10 @@ final class HostingStore: ObservableObject {
         static let autoStart = "pockethost.autoStart"
         static let backgroundHosting = "pockethost.backgroundHosting"
         static let keepScreenAwake = "pockethost.keepScreenAwake"
+        static let refuseOversized = "pockethost.refuseOversized"
+        static let deviceRunner = "pockethost.deviceRunner"
+        static let prefetchRuntimes = "pockethost.prefetchRuntimes"
+        static let cachesOnDevice = "pockethost.cacheOnDevice"
     }
 
     // MARK: - Life cycle
@@ -106,6 +158,10 @@ final class HostingStore: ObservableObject {
         self.autoStart = defaults.object(forKey: Keys.autoStart) as? Bool ?? true
         self.backgroundHosting = defaults.object(forKey: Keys.backgroundHosting) as? Bool ?? true
         self.keepScreenAwake = defaults.object(forKey: Keys.keepScreenAwake) as? Bool ?? true
+        self.refuseOversized = defaults.object(forKey: Keys.refuseOversized) as? Bool ?? false
+        self.deviceRunnerEnabled = defaults.object(forKey: Keys.deviceRunner) as? Bool ?? true
+        self.prefetchRuntimes = defaults.object(forKey: Keys.prefetchRuntimes) as? Bool ?? true
+        self.cachesOnDevice = defaults.object(forKey: Keys.cachesOnDevice) as? Bool ?? true
 
         self.server = HTTPServer(
             configuration: HTTPServer.Configuration(
@@ -114,7 +170,8 @@ final class HostingStore: ObservableObject {
                 servesDirectoryListings: true,
                 allowsCORS: true,
                 advertisesBonjour: true,
-                displayName: "PocketHost"
+                displayName: "PocketHost",
+                cachesOnDevice: true
             )
         )
 
@@ -127,6 +184,36 @@ final class HostingStore: ObservableObject {
         background.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+
+        MemoryGuard.shared.refusesOversized = refuseOversized
+        MemoryGuard.shared.onDetection = { [weak self] detection in
+            guard let self else { return }
+            self.guardDetections.insert(detection, at: 0)
+            if self.guardDetections.count > 5 {
+                self.guardDetections.removeLast(self.guardDetections.count - 5)
+            }
+        }
+
+        runner.shouldRun = { [weak self] in
+            guard let self, self.deviceRunnerEnabled, self.isRunning else { return false }
+            guard let lastRemoteRequestAt = self.lastRemoteRequestAt else { return true }
+            return Date().timeIntervalSince(lastRemoteRequestAt) > 20
+        }
+        runner.onRun = { [weak self] count in
+            guard let self else { return }
+            self.deviceRunCount += count
+            self.lastDeviceRun = Date()
+        }
+
+        RuntimePreloader.shared.isEnabled = prefetchRuntimes
+        RuntimePreloader.shared.onPreload = { [weak self] summary in
+            guard let self else { return }
+            self.prefetchSummaries.insert(summary, at: 0)
+            if self.prefetchSummaries.count > 5 {
+                self.prefetchSummaries.removeLast(self.prefetchSummaries.count - 5)
+            }
+            self.preloadedBytes += summary.bytes
+        }
 
         files.seedIfNeeded()
         refreshStats()
@@ -147,13 +234,22 @@ final class HostingStore: ObservableObject {
         isStarting = true
         lanAddress = NetworkInfo.localIPv4Address()
 
+        // If the preferred port is busy, walk upwards instead of going offline.
+        // The browser's home address follows the change through `port`.
+        let preferred = max(1024, min(port, 65535))
+        let chosen = NetworkInfo.firstAvailablePort(startingAt: preferred)
+        if chosen != port {
+            port = chosen
+        }
+
         let configuration = HTTPServer.Configuration(
             root: files.root,
             port: UInt16(clamping: max(1024, min(port, 65535))),
             servesDirectoryListings: directoryListing,
             allowsCORS: corsEnabled,
             advertisesBonjour: advertiseBonjour,
-            displayName: "PocketHost"
+            displayName: "PocketHost",
+            cachesOnDevice: cachesOnDevice
         )
 
         do {
@@ -256,11 +352,13 @@ final class HostingStore: ObservableObject {
             lanAddress = NetworkInfo.localIPv4Address()
             applyBackgroundPolicy()
             applyScreenPolicy()
+            applyRunnerPolicy()
 
         case .stopped:
             isStarting = false
             isRunning = false
             startedAt = nil
+            runner.stop()
             background.setKeepAlive(false)
             UIApplication.shared.isIdleTimerDisabled = false
 
@@ -268,18 +366,31 @@ final class HostingStore: ObservableObject {
             isStarting = false
             isRunning = false
             lastError = message
+            runner.stop()
             background.setKeepAlive(false)
             UIApplication.shared.isIdleTimerDisabled = false
 
         case .request(let entry):
+            // Traffic, however idle, renews the lease with iOS.
+            background.extend()
+
+            guard entry.origin == .remote else {
+                deviceRunCount += 1
+                lastDeviceRun = entry.date
+                return
+            }
+
+            lastRemoteRequestAt = entry.date
             requestCount += 1
             bytesServed += entry.bytes
+            if entry.storesOnDevice {
+                deviceStoredBytes += entry.bytes
+                deviceStoredCount += 1
+            }
             activity.insert(entry, at: 0)
             if activity.count > 40 {
                 activity.removeLast(activity.count - 40)
             }
-            // Traffic, however idle, renews the lease with iOS.
-            background.extend()
         }
     }
 
@@ -293,6 +404,16 @@ final class HostingStore: ObservableObject {
         UIApplication.shared.isIdleTimerDisabled = isRunning && keepScreenAwake
     }
 
+    /// The runner only works while there is a listener to talk to, and only
+    /// while the user wants the device to exercise the site on its own.
+    private func applyRunnerPolicy() {
+        if isRunning, deviceRunnerEnabled {
+            runner.start(port: port)
+        } else {
+            runner.stop()
+        }
+    }
+
     // MARK: - Persistence
 
     private func persist() {
@@ -303,5 +424,9 @@ final class HostingStore: ObservableObject {
         defaults.set(autoStart, forKey: Keys.autoStart)
         defaults.set(backgroundHosting, forKey: Keys.backgroundHosting)
         defaults.set(keepScreenAwake, forKey: Keys.keepScreenAwake)
+        defaults.set(refuseOversized, forKey: Keys.refuseOversized)
+        defaults.set(deviceRunnerEnabled, forKey: Keys.deviceRunner)
+        defaults.set(prefetchRuntimes, forKey: Keys.prefetchRuntimes)
+        defaults.set(cachesOnDevice, forKey: Keys.cachesOnDevice)
     }
 }

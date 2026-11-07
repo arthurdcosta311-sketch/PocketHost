@@ -18,6 +18,7 @@ struct ServerView: View {
                 VStack(spacing: 16) {
                     statusCard
                     backgroundCard
+                    guardCard
                     addressesCard
                     statsRow
                     activityCard
@@ -267,9 +268,17 @@ struct ServerView: View {
 
     private var activityCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: 8) {
                 Text("Live requests")
                     .font(.subheadline.weight(.semibold))
+
+                Text("\(store.requestCount)")
+                    .font(.caption2.weight(.bold).monospaced())
+                    .foregroundStyle(.tint)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.14)))
+                    .contentTransition(.numericText())
 
                 Spacer()
 
@@ -308,6 +317,7 @@ struct ServerView: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color(.secondarySystemGroupedBackground))
         )
+        .animation(.snappy(duration: 0.22), value: store.requestCount)
     }
 
     // MARK: - Background
@@ -386,6 +396,178 @@ struct ServerView: View {
         case .needsPermission, .denied, .limited: return Color.orange
         case .off: return Color.secondary
         }
+    }
+
+    // MARK: - Runtime guard
+
+    private var guardCard: some View {
+        VStack(spacing: 0) {
+            memoryRow
+
+            Divider().padding(.leading, 62)
+
+            prefetchRow
+
+            Divider().padding(.leading, 62)
+
+            runnerRow
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
+    private var memoryRow: some View {
+        TimelineView(.periodic(from: Date(), by: 2)) { _ in
+            HStack(spacing: 14) {
+                Image(systemName: "memorychip")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.purple)
+                    .frame(width: 34, height: 34)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.purple.opacity(0.14))
+                    )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Memory guard")
+                        .font(.footnote.weight(.semibold))
+
+                    Text(memoryDetail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 6)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+        }
+    }
+
+    private var memoryDetail: String {
+        let footprint = MemoryGuard.footprintText()
+
+        if let detection = store.guardDetections.first {
+            let verdict = detection.refused ? "refused" : "streamed"
+            return "App at \(footprint) of 512 MB · last request over the ceiling: \(detection.path) (\(FileStore.sizeText(detection.bytes))) \(verdict)"
+        }
+
+        return "App at \(footprint) of 512 MB · nothing over the ceiling seen"
+    }
+
+    private var prefetchRow: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "externaldrive")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.blue)
+                .frame(width: 34, height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.blue.opacity(0.14))
+                )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Device cache")
+                    .font(.footnote.weight(.semibold))
+
+                Text(prefetchDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 6)
+
+            Toggle("", isOn: $store.cachesOnDevice)
+                .labelsHidden()
+                .accessibilityLabel("Cache files on connected devices")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+    }
+
+    private var prefetchDetail: String {
+        guard store.cachesOnDevice else {
+            return "Off. Responses say no-store, so a connected device keeps nothing."
+        }
+
+        let stored = deviceStoredText
+
+        guard store.prefetchRuntimes else {
+            return "\(stored) · runtime preloading is off"
+        }
+
+        guard let summary = store.prefetchSummaries.first else {
+            return "\(stored) · every page goes out with preload hints for its runtimes"
+        }
+
+        var counts: [String: Int] = [:]
+        for dependency in summary.dependencies {
+            counts[dependency.kind.label, default: 0] += 1
+        }
+        let kinds = counts
+            .sorted { $0.key < $1.key }
+            .map { "\($0.value) \($0.key)" }
+            .joined(separator: ", ")
+
+        let total = summary.dependencies.count
+        return "\(stored) · \(summary.documentPath): \(total) runtime\(total == 1 ? "" : "s") handed to the client\(kinds.isEmpty ? "" : " (\(kinds))")"
+    }
+
+    private var deviceStoredText: String {
+        guard store.deviceStoredCount > 0 else {
+            return "Nothing kept by a connected device yet"
+        }
+
+        let size = FileStore.sizeText(store.deviceStoredBytes)
+        let count = store.deviceStoredCount
+        return "\(size) in \(count) asset\(count == 1 ? "" : "s") kept by the devices that connected"
+    }
+
+    private var runnerRow: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "bolt.horizontal.circle")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.teal)
+                .frame(width: 34, height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.teal.opacity(0.14))
+                )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("On-device runner")
+                    .font(.footnote.weight(.semibold))
+
+                Text(runnerDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 6)
+
+            Toggle("", isOn: $store.deviceRunnerEnabled)
+                .labelsHidden()
+                .accessibilityLabel("Run the site on this device when idle")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+    }
+
+    private var runnerDetail: String {
+        guard store.deviceRunnerEnabled else {
+            return "Off. Pages only run when a connected device asks for them."
+        }
+
+        if let last = store.lastDeviceRun {
+            return "\(store.deviceRunCount) runs on this device · last \(last.formatted(date: .omitted, time: .shortened))"
+        }
+
+        return "Runs page loads itself when nothing else is asking. Controls and key maps stay with connected devices."
     }
 
     // MARK: - Footnote

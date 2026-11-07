@@ -11,6 +11,7 @@ import WebKit
 
 struct BrowserView: View {
     @EnvironmentObject private var browser: BrowserModel
+    @EnvironmentObject private var store: HostingStore
 
     @FocusState private var addressFocused: Bool
 
@@ -26,9 +27,13 @@ struct BrowserView: View {
                         .progressViewStyle(.linear)
                         .tint(.accentColor)
                 }
+
+                if isWaitingForServer {
+                    serverOffCard
+                }
             }
 
-            if let message = browser.errorMessage {
+            if let message = browser.errorMessage, !isWaitingForServer {
                 errorBanner(message)
             }
         }
@@ -36,10 +41,71 @@ struct BrowserView: View {
             controls
         }
         .onAppear {
-            if browser.currentURL.isEmpty {
-                browser.loadHome()
+            if store.isRunning && !browser.hasContent {
+                browser.loadCurrentAddress()
             }
         }
+        .onChange(of: store.isRunning) { _, running in
+            guard running else { return }
+
+            // The server just came up: finish whatever was waiting instead of
+            // sitting on a dead page until someone taps reload.
+            if browser.hasContent {
+                browser.retryFailedLoad()
+            } else {
+                browser.loadCurrentAddress()
+            }
+        }
+    }
+
+    // MARK: - Server state
+
+    private var isLocalAddress: Bool {
+        let address = browser.addressField.lowercased()
+        return address.contains("localhost") || address.contains("127.0.0.1")
+    }
+
+    private var isWaitingForServer: Bool {
+        !store.isRunning && isLocalAddress && !browser.hasContent
+    }
+
+    private var serverOffCard: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "server.rack")
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                Text(store.isStarting ? "Starting the server…" : "The server is off")
+                    .font(.headline)
+
+                Text(store.isStarting
+                     ? "This page loads the moment the listener is ready."
+                     : "PocketHost has to be serving for \(browser.addressField) to open.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    store.start()
+                } label: {
+                    Label("Start server", systemImage: "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Retry") { browser.loadCurrentAddress() }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: 320)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(24)
+        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+        .animation(.snappy, value: store.isRunning)
     }
 
     // MARK: - Address bar
@@ -165,6 +231,10 @@ struct BrowserView: View {
                 .lineLimit(2)
 
             Spacer(minLength: 0)
+
+            Button("Retry") { browser.retryFailedLoad() }
+                .font(.footnote.weight(.semibold))
+                .buttonStyle(.borderless)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -189,4 +259,5 @@ struct WebViewContainer: UIViewRepresentable {
 #Preview {
     BrowserView()
         .environmentObject(BrowserModel())
+        .environmentObject(HostingStore())
 }

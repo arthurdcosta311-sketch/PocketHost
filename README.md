@@ -22,6 +22,9 @@ else on the network — and it ships with a full browser to look at the result.
 - **Shareable address**: the app shows the LAN URL and a QR code so another phone
   or a laptop can open the same site.
 - **Bonjour**: advertises itself as an `_http._tcp` service on the network.
+- **Never blocks the page**: if the chosen port is already taken the server walks
+  up to the next free one, and the browser finishes a load on its own as soon as
+  the listener is up instead of leaving a dead page behind.
 
 ## Where the files live
 
@@ -48,6 +51,38 @@ Background, along with whether the screen itself stays awake while hosting.
 Every push builds an unsigned IPA on GitHub Actions and refreshes a rolling
 **latest** release. Numbered releases are cut by pushing a `v*` tag or by
 including a `[release vX.Y.Z]` marker in a commit message on `main`.
+
+## Where the runtimes live
+
+Nothing a page needs is kept on the phone. When a document is served,
+`RuntimeScanner` works out what it pulls in — classic scripts, ES modules and
+the modules they import, stylesheets and the fonts and images those reference,
+`.wasm` binaries and worker scripts — and `CacheHints` adds a
+`<link rel="preload">` (or `modulepreload`) for each one to the page's `<head>`.
+The **connected device** downloads those files straight away, in parallel with
+the page, and keeps them in its own HTTP cache.
+
+The serving policy follows the same rule. Pages go out with
+`Cache-Control: no-cache` plus `ETag` and `Last-Modified`, so an edit shows up
+on the next load (as a `304 Not Modified` when nothing changed). Every other
+file goes out with `public, max-age=60, stale-while-revalidate=86400`: the
+client stores it, reuses it without asking for a minute, and after that shows its
+own copy instantly while it revalidates in the background. The Server tab shows
+how much the connected devices have kept. Turning **Cache files on connected
+devices** off in Settings sends `no-store` for everything instead.
+
+Answers that would need more than **512 MB** are detected from their length and
+reported against the app's live footprint on the Server tab. The file is streamed
+either way, which is what keeps the app inside its budget; blocking one is opt-in
+in Settings, not the default.
+
+The **on-device runner** exercises the site on the phone itself: every 15 seconds,
+when no other machine has asked for anything recently, it GETs the entry page and
+up to three same-origin links it finds there. Those runs are tagged, counted
+separately and kept out of the shared request log, so the runtime stays warm
+without a connected device driving it. It only ever issues GETs for documents and
+assets — it never synthesises taps, keystrokes, controls or key maps, so anything
+interactive still needs a real client.
 
 ## Limits worth knowing
 

@@ -59,6 +59,18 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    LabeledContent("Memory ceiling", value: "512 MB")
+                    Toggle("Cache files on connected devices", isOn: $store.cachesOnDevice)
+                    Toggle("Preload page runtimes", isOn: $store.prefetchRuntimes)
+                    Toggle("Block over-size responses", isOn: $store.refuseOversized)
+                    Toggle("Run the site on-device when idle", isOn: $store.deviceRunnerEnabled)
+                } header: {
+                    Text("Runtime guard")
+                } footer: {
+                    Text("Runtimes are kept by the devices that connect, not by this phone. Every page the server hands out is scanned for what it needs — scripts, modules, styles, fonts, images, WebAssembly and workers, including what its stylesheets pull in — and that list travels with the page as preload hints, so the client downloads those files straight away and stores them in its own cache. Pages revalidate every time, so an edit shows up on the next load, while assets stay on the client for five minutes and are then revalidated in the background. Turning caching off sends no-store instead. Answers over 512 MB are detected from their length and reported on the Server tab; they are streamed, and only blocked if you switch that on. The on-device runner fetches the entry page and its same-origin links by itself so the runtime stays warm without another device asking. It only issues GET requests — it never synthesises taps, keystrokes, controls or key maps, so anything interactive still needs a real client.")
+                }
+
+                Section {
                     LabeledContent("Hosted folder", value: "www")
                     LabeledContent("Files", value: "\(store.fileCount)")
                     Button("Restore sample sites") { showingRestore = true }

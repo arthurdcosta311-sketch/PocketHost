@@ -22,6 +22,7 @@ final class BrowserModel: NSObject, ObservableObject {
 
     private var homeURL = URL(string: "http://localhost:8080/")!
     private var observations: [NSKeyValueObservation] = []
+    private var lastRequestedURL: URL?
 
     lazy var webView: WKWebView = makeWebView()
 
@@ -86,6 +87,7 @@ final class BrowserModel: NSObject, ObservableObject {
 
     func load(_ url: URL) {
         errorMessage = nil
+        lastRequestedURL = url
         addressField = url.absoluteString
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -95,6 +97,23 @@ final class BrowserModel: NSObject, ObservableObject {
 
     func loadHome() {
         load(homeURL)
+    }
+
+    /// True once anything has actually rendered.
+    var hasContent: Bool {
+        webView.url != nil
+    }
+
+    /// Reloads whatever failed, e.g. the moment the server comes up, so a page
+    /// that was requested while the listener was down appears by itself.
+    func retryFailedLoad() {
+        guard errorMessage != nil || webView.url == nil else { return }
+
+        if let target = lastRequestedURL ?? Self.normalizedURL(from: addressField) {
+            load(target)
+        } else {
+            loadHome()
+        }
     }
 
     func loadCurrentAddress() {
