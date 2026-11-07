@@ -30,6 +30,14 @@ else on the network — and it ships with a full browser to look at the result.
   then UPnP IGD) and falls back to the device's own global IPv6 address, then
   shows the internet-facing URL with a QR code. The mapping is renewed while the
   server runs and removed when it stops.
+- **Published copy**: when no router will open a port, one button copies the
+  hosted folder to GitHub and turns GitHub Pages on, so the site gets a permanent
+  `https` address that works from anywhere without any network setup. Choose the
+  account's own `username.github.io` site, which serves at the root of the
+  address, or a named repository. `WebPublisher` does it over the GitHub REST API.
+- **Each account makes its own token**: the token is created on GitHub with the
+  repo scope and kept in this phone's keychain, so nothing is shared between
+  people using the app.
 - **Bonjour**: advertises itself as an `_http._tcp` service on the network.
 - **Web Crypto everywhere**: plain HTTP is not a secure context, so a shim gives
   every page a working `crypto.subtle` backed by the phone's own CryptoKit.
@@ -121,6 +129,9 @@ interactive still needs a real client.
   that speaks NAT-PMP or UPnP, or a device with a globally routable IPv6 address.
   A provider that puts the router behind its own NAT cannot be opened from inside,
   and PocketHost says so on the Server tab instead of pretending.
+- **Publish to the web** is the way round that: it publishes a static copy to
+  GitHub Pages, so it needs a GitHub token with the repo scope, only static files
+  travel, and a published site is a snapshot until you publish again.
 
 ## Layout
 

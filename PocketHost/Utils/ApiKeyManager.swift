@@ -76,6 +76,24 @@ class ApiKeyManager {
     func has(key: String) -> Bool {
         return get(key: key) != nil
     }
+
+    /// Store a value in Keychain, replacing anything already there.
+    /// - Parameters:
+    ///   - key: The key name
+    ///   - value: The value to store
+    /// - Returns: True if successful, false otherwise
+    @discardableResult
+    func set(key: String, value: String) -> Bool {
+        return save(key: key, value: value)
+    }
+
+    /// Remove a value from Keychain.
+    /// - Parameter key: The key name
+    /// - Returns: True if it was removed or was not there
+    @discardableResult
+    func remove(key: String) -> Bool {
+        return delete(key: key)
+    }
     
     // MARK: - Private Methods
     

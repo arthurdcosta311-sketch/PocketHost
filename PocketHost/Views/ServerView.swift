@@ -187,6 +187,18 @@ struct ServerView: View {
                 shareable: store.globalURL != nil,
                 placeholder: store.globalAccess ? store.globalStatus : "Off · turn it on in Settings"
             )
+
+            if let published = store.publisher.state.url {
+                Divider().padding(.leading, 62)
+
+                addressRow(
+                    title: "Published",
+                    url: published,
+                    systemImage: "paperplane",
+                    tint: .purple,
+                    shareable: true
+                )
+            }
         }
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)

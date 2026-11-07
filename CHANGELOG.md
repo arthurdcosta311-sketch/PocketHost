@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Publish to the web: copies the hosted folder to GitHub and turns GitHub Pages
+  on, either at the account's own `username.github.io` site (served at the root)
+  or in a named repository. Each account makes its own token, which is kept in
+  the phone's keychain.
+
 ## 0.4
 
 - Extended dynamic range: the browser's layer is set up for EDR rendering, the

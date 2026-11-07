@@ -79,6 +79,17 @@ final class HostingStore: ObservableObject {
         }
     }
 
+    /// The public GitHub repository a published copy of the site goes to.
+    @Published var publishRepo: String {
+        didSet { persist() }
+    }
+
+    /// Publish to this account's own `<username>.github.io` site, which serves
+    /// at the root of the address instead of a folder under it.
+    @Published var publishUserSite: Bool {
+        didSet { persist() }
+    }
+
     /// Run the hosted site on this device when nobody else is asking for it.
     @Published var deviceRunnerEnabled: Bool {
         didSet {
@@ -123,6 +134,7 @@ final class HostingStore: ObservableObject {
     let files: FileStore
     let background = BackgroundKeeper()
     let global = GlobalAccess()
+    let publisher = WebPublisher()
 
     private let server: HTTPServer
     private let runner = LocalRunner()
@@ -146,6 +158,8 @@ final class HostingStore: ObservableObject {
         static let prefetchRuntimes = "pockethost.prefetchRuntimes"
         static let cachesOnDevice = "pockethost.cacheOnDevice"
         static let globalAccess = "pockethost.globalAccess"
+        static let publishRepo = "pockethost.publishRepo"
+        static let publishUserSite = "pockethost.publishUserSite"
     }
 
     // MARK: - Life cycle
@@ -167,6 +181,8 @@ final class HostingStore: ObservableObject {
         self.prefetchRuntimes = defaults.object(forKey: Keys.prefetchRuntimes) as? Bool ?? true
         self.cachesOnDevice = defaults.object(forKey: Keys.cachesOnDevice) as? Bool ?? true
         self.globalAccess = defaults.object(forKey: Keys.globalAccess) as? Bool ?? false
+        self.publishRepo = defaults.string(forKey: Keys.publishRepo) ?? "pockethost-site"
+        self.publishUserSite = defaults.object(forKey: Keys.publishUserSite) as? Bool ?? false
 
         self.server = HTTPServer(
             configuration: HTTPServer.Configuration(
@@ -193,6 +209,10 @@ final class HostingStore: ObservableObject {
         global.onStateChange = { [weak self] state in
             self?.apply(state)
         }
+
+        publisher.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
 
         runner.shouldRun = { [weak self] in
             guard let self, self.deviceRunnerEnabled, self.isRunning else { return false }
@@ -446,6 +466,22 @@ final class HostingStore: ObservableObject {
         }
     }
 
+    // MARK: - Publishing
+
+    /// Copies the hosted folder to a public GitHub repository and turns Pages
+    /// on, which gives the site an address that works without any router setup.
+    func publishSite() {
+        guard let token = ApiKeyManager.shared.get(key: "GITHUB_PUBLISH_TOKEN") else { return }
+
+        let repo = publishRepo
+        let root = files.root
+        let userSite = publishUserSite
+
+        Task { @MainActor in
+            await publisher.publish(repo: repo, token: token, root: root, userSite: userSite)
+        }
+    }
+
     // MARK: - Persistence
 
     private func persist() {
@@ -460,5 +496,7 @@ final class HostingStore: ObservableObject {
         defaults.set(prefetchRuntimes, forKey: Keys.prefetchRuntimes)
         defaults.set(cachesOnDevice, forKey: Keys.cachesOnDevice)
         defaults.set(globalAccess, forKey: Keys.globalAccess)
+        defaults.set(publishRepo, forKey: Keys.publishRepo)
+        defaults.set(publishUserSite, forKey: Keys.publishUserSite)
     }
 }

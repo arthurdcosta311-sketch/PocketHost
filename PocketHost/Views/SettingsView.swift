@@ -7,9 +7,11 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var store: HostingStore
+    @EnvironmentObject private var router: AppRouter
     @Environment(\.dismiss) private var dismiss
 
     @State private var portText = ""
+    @State private var tokenText = ""
     @State private var showingRestore = false
     @State private var restoreNote: String?
 
@@ -70,6 +72,90 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    if ApiKeyManager.shared.has(key: "GITHUB_PUBLISH_TOKEN") {
+                        LabeledContent("Token", value: "Saved in the keychain")
+
+                        Button("Remove token", role: .destructive) {
+                            ApiKeyManager.shared.remove(key: "GITHUB_PUBLISH_TOKEN")
+                            tokenText = ""
+                        }
+                    } else {
+                        SecureField("Paste your own token", text: $tokenText)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+
+                        Button("Save token") {
+                            let value = tokenText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !value.isEmpty else { return }
+                            if ApiKeyManager.shared.set(key: "GITHUB_PUBLISH_TOKEN", value: value) {
+                                tokenText = ""
+                            }
+                        }
+                        .disabled(tokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    Button("Create a token on GitHub") {
+                        if let url = URL(string: "https://github.com/settings/tokens/new?scopes=repo&description=PocketHost") {
+                            router.openInBrowser(url)
+                        }
+                    }
+                    .font(.footnote)
+                } header: {
+                    Text("GitHub account")
+                } footer: {
+                    Text("Every account makes its own token, so nothing is shared between users: create one with the repo scope on GitHub, paste it here once, and PocketHost keeps it in this phone's keychain and nowhere else.")
+                }
+
+                Section {
+                    Toggle("Use my username.github.io site", isOn: $store.publishUserSite)
+
+                    if !store.publishUserSite {
+                        HStack {
+                            Text("Repository")
+                            Spacer()
+                            TextField("pocket-host-site", text: $store.publishRepo)
+                                .multilineTextAlignment(.trailing)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                        }
+                    }
+
+                    if let url = store.publisher.state.url {
+                        LabeledContent("Published at", value: url)
+                    }
+
+                    Button {
+                        store.publishSite()
+                    } label: {
+                        HStack {
+                            Text("Publish site to GitHub Pages")
+
+                            if store.publisher.state.isWorking {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(store.publisher.state.isWorking)
+
+                    if case let .working(step) = store.publisher.state {
+                        Text(step)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if case let .failed(reason) = store.publisher.state {
+                        Text(reason)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                } header: {
+                    Text("Publish to the web")
+                } footer: {
+                    Text("Copies the hosted folder to GitHub and turns GitHub Pages on, so the site has a permanent https address that works from anywhere — no router to configure. With the username.github.io option it goes to your own GitHub Pages site and lives at the root of the address; otherwise it goes to the named repository and lives at username.github.io/repository/. Pages serves static files only, and a published site is a snapshot until you publish again.")
+                }
+
+                Section {
                     LabeledContent("Hosted folder", value: "www")
                     LabeledContent("Files", value: "\(store.fileCount)")
                     Button("Restore sample sites") { showingRestore = true }
@@ -101,7 +187,9 @@ struct SettingsView: View {
                     .fontWeight(.semibold)
                 }
             }
-            .onAppear { portText = String(store.port) }
+            .onAppear {
+                portText = String(store.port)
+            }
             .alert("Restore sample sites?", isPresented: $showingRestore) {
                 Button("Restore", role: .destructive) {
                     store.files.restoreSamples()
@@ -153,4 +241,5 @@ struct SettingsView: View {
 #Preview {
     SettingsView()
         .environmentObject(HostingStore())
+        .environmentObject(AppRouter())
 }
