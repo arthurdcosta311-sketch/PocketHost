@@ -1,0 +1,105 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0). Leave empty to update the rolling latest release.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build IPA
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          fi
+          echo "Using $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: Build app (unsigned, device)
+        run: |
+          xcodebuild \
+            -project PocketHost.xcodeproj \
+            -scheme PocketHost \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP=$(find build/Build/Products -maxdepth 1 -name 'PocketHost.app' -print -quit)
+          if [ -z "$APP" ]; then
+            echo "PocketHost.app not found" >&2
+            exit 1
+          fi
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            IPA_NAME="PocketHost-${GITHUB_REF_NAME}.ipa"
+          else
+            IPA_NAME="PocketHost-${SHORT_SHA}.ipa"
+          fi
+          echo "IPA_NAME=$IPA_NAME" >> "$GITHUB_ENV"
+          zip -r -q "$IPA_NAME" Payload
+          ls -lh "$IPA_NAME"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PocketHost-ipa-${{ github.run_number }}
+          path: ${{ env.IPA_NAME }}
+          if-no-files-found: error
+
+      # Pushing a v* tag releases that tag with the IPA.
+      - name: Attach IPA to release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ env.IPA_NAME }}
+          generate_release_notes: true
+
+      # Manual run with a tag input releases that tag with the IPA.
+      - name: Attach IPA to release (manual)
+        if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          files: ${{ env.IPA_NAME }}
+          generate_release_notes: true
+
+      # Every push to main keeps a rolling "latest" prerelease updated with the IPA.
+      - name: Update rolling latest release
+        if: github.ref_type != 'tag' && (github.event_name != 'workflow_dispatch' || inputs.tag == '')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          files: ${{ env.IPA_NAME }}
+          prerelease: true
+          body: |
+            Automatic build of the latest `main` commit (${{ github.sha }}).
+
+            The IPA is **unsigned**: re-sign it with AltStore, Sideloadly, Xcode or a
+            signing service before installing it on a device.
