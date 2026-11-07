@@ -47,7 +47,7 @@ jobs:
       - name: Package IPA
         run: |
           set -euo pipefail
-          APP=$(find build/Build/Products -maxdepth 1 -name 'PocketHost.app' -print -quit)
+          APP=$(find build/Build/Products -name 'PocketHost.app' -print -quit)
           if [ -z "$APP" ]; then
             echo "PocketHost.app not found" >&2
             exit 1
