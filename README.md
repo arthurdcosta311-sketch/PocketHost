@@ -115,8 +115,6 @@ interactive still needs a real client.
 
 ## Limits worth knowing
 
-- Background hosting needs the Location background mode and location permission.
-  App Store review may ask about it, since it is a background-location use.
 - If location permission is denied, the server still runs while the app is on
   screen, and iOS may pause it shortly after you switch away.
 - The address that reaches the internet comes from the router. It needs a router
