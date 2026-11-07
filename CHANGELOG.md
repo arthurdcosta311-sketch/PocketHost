@@ -1,11 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.5
 
 - Publish to the web: copies the hosted folder to GitHub and turns GitHub Pages
   on, either at the account's own `username.github.io` site (served at the root)
   or in a named repository. Each account makes its own token, which is kept in
   the phone's keychain.
+- The published site now lands at the repository root, keeps its stylesheet and
+  script links working under a project path, points an already-enabled Pages site
+  at the branch that was just published, adds `.nojekyll`, and reports a failed
+  build instead of showing an address that serves nothing.
 
 ## 0.4
 
