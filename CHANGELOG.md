@@ -5,7 +5,7 @@
 - More kinds of file work throughout: JSON, JavaScript, TypeScript, stylesheet
   flavours, config files and source files are editable and served with proper
   content types, and files with no extension — `Dockerfile`, `Makefile`,
-  `Gemfile`, dot-files — open in the editor instead of falling through.
+  `Gemfile` — open in the editor instead of falling through.
 - New files start from a fitting template (`{}` for JSON, a comment header for
   CSS and JS, the page template for HTML) rather than always being an HTML page.
 - Assets preview with Quick Look: tapping an image, audio or video file, PDF,
