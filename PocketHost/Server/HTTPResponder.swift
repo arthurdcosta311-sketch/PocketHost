@@ -100,6 +100,10 @@ struct HTTPResponder {
             return response
         }
 
+        if let api = StreamAPI.handle(request, cors: cors) {
+            return api
+        }
+
         guard let decoded = request.target.removingPercentEncoding,
               !decoded.contains("\0"),
               decoded.count < 4096

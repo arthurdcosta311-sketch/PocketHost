@@ -45,6 +45,13 @@ else on the network — and it ships with a full browser to look at the result.
   `.zip` dropped in is unpacked into a folder named after it, so a site can be
   imported in one go. Assets — images, audio, video, PDFs, fonts, models — open
   in a Quick Look preview instead of the editor.
+- **Source-driven sites (dango)**: the API a source-driven player asks for is
+  built in. `/api/health` tells a site the server is there; `/api/proxy` fetches
+  a stream through the phone with the `Referer` a CDN expects, passes byte ranges
+  through, rewrites HLS playlists through itself and converts SRT subtitles to
+  WebVTT; `/api/anilibria` bridges the public AniLibria API into a direct HLS
+  episode. `/api/provider` answers honestly that the Node provider engine is not
+  available, so the site falls back to what does work.
 - **Shareable address**: the app shows the LAN URL and a QR code so another phone
   or a laptop can open the same site.
 - **Reachable from anywhere**: asks the router for a TCP port mapping (NAT-PMP,
@@ -118,6 +125,10 @@ Files are streamed in chunks, so a multi-gigabyte one costs no more memory than 
 small one: PocketHost puts **no ceiling** on what it serves, and nothing is
 refused for its size. The Server tab reports the app's own memory footprint as a
 readout.
+
+Each connection gets its own queue, so a long request — a proxied stream, say —
+does not hold up the other clients. Proxy fetches are downloaded to a temporary
+file and served from there with byte ranges, then cleaned up an hour later.
 
 ## Web Crypto
 

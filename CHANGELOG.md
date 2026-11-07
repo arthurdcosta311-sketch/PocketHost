@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- The API a source-driven site needs is now part of the server: `/api/health`,
+  `/api/proxy` (Referer and Range passthrough, HLS playlist rewriting through the
+  proxy, SRT to WebVTT), `/api/anilibria` (public API bridged to a direct HLS
+  episode) and `/api/provider` (an honest 503 — the Node provider engine cannot
+  run on the phone).
+- Every connection is served on its own queue, so one long proxied stream no
+  longer stalls every other request.
+- App Transport Security allows arbitrary loads, which proxy fetches to plain
+  http CDNs need.
+
 ## 0.7
 
 - API surface: folders answer as JSON with `?format=json` or an

@@ -92,6 +92,7 @@ final class HTTPServer {
     private var configuration: Configuration
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: HTTPConnection] = [:]
+    private let connectionsLock = NSLock()
 
     var onEvent: ((ServerEvent) -> Void)?
 
@@ -158,15 +159,24 @@ final class HTTPServer {
     // MARK: - Connections
 
     private func accept(_ connection: NWConnection) {
-        let handler = HTTPConnection(connection: connection, configuration: configuration, queue: queue)
+        // Every connection gets its own queue, so one long request — a proxied
+        // stream, say — cannot hold up every other client.
+        let connectionQueue = DispatchQueue(label: "com.pockethost.http.connection", qos: .userInitiated)
+        let handler = HTTPConnection(connection: connection, configuration: configuration, queue: connectionQueue)
         let key = ObjectIdentifier(handler)
 
+        connectionsLock.lock()
         connections[key] = handler
+        connectionsLock.unlock()
+
         handler.onLog = { [weak self] entry in
             self?.emit(.request(entry))
         }
         handler.onClose = { [weak self] in
-            self?.connections.removeValue(forKey: key)
+            guard let self else { return }
+            self.connectionsLock.lock()
+            self.connections.removeValue(forKey: key)
+            self.connectionsLock.unlock()
         }
         handler.start()
     }

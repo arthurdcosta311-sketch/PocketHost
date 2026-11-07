@@ -78,6 +78,8 @@ struct HTTPStatus: Equatable {
     static let requestTooLarge = HTTPStatus(code: 413, reason: "Content Too Large")
     static let rangeNotSatisfiable = HTTPStatus(code: 416, reason: "Range Not Satisfiable")
     static let internalServerError = HTTPStatus(code: 500, reason: "Internal Server Error")
+    static let badGateway = HTTPStatus(code: 502, reason: "Bad Gateway")
+    static let serviceUnavailable = HTTPStatus(code: 503, reason: "Service Unavailable")
 }
 
 // MARK: - Response
