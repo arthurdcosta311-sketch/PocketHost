@@ -25,6 +25,30 @@ struct HTTPResponder {
     // MARK: - Dispatch
 
     func respond(to request: HTTPRequest, body: Data? = nil) -> HTTPResponse {
+        withCORS(dispatch(to: request, body: body), request: request)
+    }
+
+    /// API clients need the cross-origin pieces on every answer, including
+    /// errors and preflights, or a range request from a page fails with a CORS
+    /// error the player can only report as "cannot load".
+    private func withCORS(_ response: HTTPResponse, request: HTTPRequest) -> HTTPResponse {
+        guard cors else { return response }
+
+        var response = response
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Expose-Headers"] = "Content-Length, Content-Range, Accept-Ranges, ETag, Last-Modified"
+
+        if request.method == "OPTIONS" {
+            response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = request.headers["access-control-request-headers"]
+                ?? "Range, Content-Type, If-None-Match, If-Modified-Since"
+            response.headers["Access-Control-Max-Age"] = "86400"
+        }
+
+        return response
+    }
+
+    private func dispatch(to request: HTTPRequest, body: Data? = nil) -> HTTPResponse {
         if request.path == WebCrypto.endpointPath {
             switch request.method {
             case "POST":
@@ -48,6 +72,22 @@ struct HTTPResponder {
                 cacheControl: Self.cacheControl(mimeType: "application/javascript", onDevice: cachesOnDevice),
                 cors: cors
             )
+        }
+
+        if request.method == "OPTIONS" {
+            var headers: [String: String] = [
+                "Allow": request.path == WebCrypto.endpointPath ? "GET, HEAD, POST, OPTIONS" : "GET, HEAD, OPTIONS",
+                "Cache-Control": "no-store",
+                "Content-Length": "0"
+            ]
+            if cors {
+                headers["Access-Control-Allow-Origin"] = "*"
+                headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+                headers["Access-Control-Allow-Headers"] = request.headers["access-control-request-headers"]
+                    ?? "Range, Content-Type, If-None-Match, If-Modified-Since"
+                headers["Access-Control-Max-Age"] = "86400"
+            }
+            return HTTPResponse(status: .noContent, headers: headers, body: .empty)
         }
 
         guard request.method == "GET" || request.method == "HEAD" else {
@@ -106,6 +146,10 @@ struct HTTPResponder {
                     headers: ["Location": location, "Content-Length": "0"],
                     body: .empty
                 )
+            }
+
+            if Self.wantsJSON(request) {
+                return jsonListingResponse(at: candidate, path: path, method: request.method)
             }
 
             for indexName in ["index.html", "index.htm", "index.xhtml"] {
@@ -250,6 +294,63 @@ struct HTTPResponder {
     // MARK: - Listing
 
     private func listingResponse(at directory: URL, path: String, method: String) -> HTTPResponse {
+        let entries = listingEntries(in: directory)
+        let html = ServerPages.listingHTML(path: path, entries: entries)
+
+        var headers: [String: String] = [
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "no-store",
+            "Content-Length": String(html.utf8.count)
+        ]
+        if cors { headers["Access-Control-Allow-Origin"] = "*" }
+
+        return HTTPResponse(
+            status: .ok,
+            headers: headers,
+            body: method == "HEAD" ? .empty : .data(Data(html.utf8))
+        )
+    }
+
+    /// The same listing as `listingResponse`, as JSON, so an API client can
+    /// discover what a folder holds without parsing HTML.
+    private func jsonListingResponse(at directory: URL, path: String, method: String) -> HTTPResponse {
+        let entries = listingEntries(in: directory)
+        let base = path.hasSuffix("/") ? path : path + "/"
+
+        let rows: [[String: Any]] = entries.map { entry in
+            [
+                "name": entry.name,
+                "path": base + entry.name + (entry.isDirectory ? "/" : ""),
+                "directory": entry.isDirectory,
+                "size": entry.size,
+                "modified": entry.modified.map { Self.iso8601.string(from: $0) } ?? ""
+            ]
+        }
+
+        let payload: [String: Any] = [
+            "path": path,
+            "count": rows.count,
+            "entries": rows
+        ]
+
+        let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]))
+            ?? Data("{}".utf8)
+
+        var headers: [String: String] = [
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+            "Content-Length": String(data.count)
+        ]
+        if cors { headers["Access-Control-Allow-Origin"] = "*" }
+
+        return HTTPResponse(
+            status: .ok,
+            headers: headers,
+            body: method == "HEAD" ? .empty : .data(data)
+        )
+    }
+
+    private func listingEntries(in directory: URL) -> [ServerPages.ListingEntry] {
         var entries: [ServerPages.ListingEntry] = []
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey]
 
@@ -273,24 +374,10 @@ struct HTTPResponder {
             }
         }
 
-        entries.sort { lhs, rhs in
+        return entries.sorted { lhs, rhs in
             if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
-
-        let html = ServerPages.listingHTML(path: path, entries: entries)
-        var headers: [String: String] = [
-            "Content-Type": "text/html; charset=utf-8",
-            "Cache-Control": "no-store",
-            "Content-Length": String(html.utf8.count)
-        ]
-        if cors { headers["Access-Control-Allow-Origin"] = "*" }
-
-        return HTTPResponse(
-            status: .ok,
-            headers: headers,
-            body: method == "HEAD" ? .empty : .data(Data(html.utf8))
-        )
     }
 
     // MARK: - Errors
@@ -337,6 +424,17 @@ struct HTTPResponder {
     }
 
     // MARK: - Helpers
+
+    /// `?format=json`, or an `Accept` header asking for JSON, gets the machine
+    /// readable listing instead of the HTML one.
+    static func wantsJSON(_ request: HTTPRequest) -> Bool {
+        if let query = request.query?.lowercased(), query.contains("format=json") {
+            return true
+        }
+        return (request.headers["accept"] ?? "").lowercased().contains("application/json")
+    }
+
+    private static let iso8601 = ISO8601DateFormatter()
 
     /// Bumped whenever what this server sends for a document stops matching the
     /// file on disk, so every cached copy is fetched again after the change.

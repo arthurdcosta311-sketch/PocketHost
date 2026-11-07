@@ -26,6 +26,12 @@ else on the network — and it ships with a full browser to look at the result.
   recognises them. Byte ranges let it seek, and streaming manifests are always
   revalidated instead of cached for a minute. Pages that stream are scanned for
   `<source>`, `<track>`, `<img>` and poster URLs as well as scripts and styles.
+- **API-friendly**: a folder answers as JSON when the request asks for it —
+  `?format=json` or `Accept: application/json` — with each entry's name, path,
+  size and modified date. Cross-origin preflights (`OPTIONS`) are answered for
+  every path, and `Content-Range`, `Accept-Ranges`, `ETag` and `Content-Length`
+  are exposed to cross-origin scripts, so a player or an API client can range
+  request any file and read what came back.
 - **A real browser engine**: WKWebView renders the hosted pages with
   JIT-compiled JavaScript, WebGL 2 on the GPU, WebAssembly, Web Workers and
   OffscreenCanvas. Its layer is set up for extended dynamic range, and served

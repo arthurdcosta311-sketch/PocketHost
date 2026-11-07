@@ -2,6 +2,16 @@
 
 ## 0.7
 
+- API surface: folders answer as JSON with `?format=json` or an
+  `Accept: application/json` header, listing each entry's name, path, size and
+  modified date. For API clients, not for browsers.
+- Cross-origin requests work end to end: `OPTIONS` preflights are answered for
+  every path with the methods and headers a client asks for, and every response
+  — errors included — carries `Access-Control-Allow-Origin` plus an
+  `Access-Control-Expose-Headers` list with `Content-Range`, `Accept-Ranges`,
+  `ETag` and `Content-Length`, so a page can range request media and read the
+  result.
+
 - Streaming formats are served properly: HLS playlists and segments (`.m3u8`,
   `.ts`, `.m2ts`, `.mts`), DASH (`.mpd`, `.m4s`), fMP4 and fragmented audio,
   subtitle formats (`.vtt`, `.srt`, `.ass`, `.ssa`), and `.flv`, `.f4v`, `.wmv`,
