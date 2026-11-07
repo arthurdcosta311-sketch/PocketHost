@@ -33,9 +33,23 @@ struct DirectoryListView: View {
     @State private var showingImporter = false
     @State private var prompt: NamePrompt?
     @State private var promptText = ""
-    @State private var editTarget: FileStore.Entry?
+    @State private var presentation: FilePresentation?
     @State private var pendingDelete: FileStore.Entry?
     @State private var banner: String?
+
+    /// The editor and the asset preview share one sheet, so neither swallows
+    /// the other.
+    enum FilePresentation: Identifiable {
+        case editor(FileStore.Entry)
+        case preview(FileStore.Entry)
+
+        var id: String {
+            switch self {
+            case .editor(let entry): return "editor-\(entry.id)"
+            case .preview(let entry): return "preview-\(entry.id)"
+            }
+        }
+    }
 
     enum NamePrompt: Identifiable {
         case newFile
@@ -52,7 +66,7 @@ struct DirectoryListView: View {
 
         var title: String {
             switch self {
-            case .newFile: return "New HTML file"
+            case .newFile: return "New file"
             case .newFolder: return "New folder"
             case .rename: return "Rename"
             }
@@ -60,7 +74,7 @@ struct DirectoryListView: View {
 
         var message: String {
             switch self {
-            case .newFile: return "A starter page is created in this folder."
+            case .newFile: return "Name it page.html, app.css, app.js or data.json — or anything else, such as Dockerfile."
             case .newFolder: return "Folders become part of the URL path."
             case .rename: return "Give the item a new name."
             }
@@ -105,7 +119,7 @@ struct DirectoryListView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button { startPrompt(.newFile) } label: {
-                        Label("New HTML file", systemImage: "doc.badge.plus")
+                        Label("New file", systemImage: "doc.badge.plus")
                     }
                     Button { startPrompt(.newFolder) } label: {
                         Label("New folder", systemImage: "folder.badge.plus")
@@ -156,8 +170,24 @@ struct DirectoryListView: View {
                  ? "The folder and everything inside it are removed from the hosted site."
                  : "The file is removed from the hosted folder.")
         }
-        .sheet(item: $editTarget) { entry in
-            FileEditorView(entry: entry)
+        .sheet(item: $presentation) { item in
+            switch item {
+            case .editor(let entry):
+                FileEditorView(entry: entry)
+            case .preview(let entry):
+                NavigationStack {
+                    QuickLookPreview(url: entry.url)
+                        .ignoresSafeArea()
+                        .navigationTitle(entry.name)
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { presentation = nil }
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                }
+            }
         }
         .overlay(alignment: .bottom) {
             if let banner {
@@ -319,7 +349,7 @@ struct DirectoryListView: View {
                 let url = try store.files.createFile(named: name, in: directory)
                 if let entry = store.files.entry(for: url) {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        editTarget = entry
+                        presentation = .editor(entry)
                     }
                 }
             case .newFolder:
@@ -349,9 +379,9 @@ struct DirectoryListView: View {
 
     private func open(_ entry: FileStore.Entry) {
         if entry.isEditable {
-            editTarget = entry
+            presentation = .editor(entry)
         } else {
-            openInBrowser(entry)
+            presentation = .preview(entry)
         }
     }
 
@@ -402,17 +432,27 @@ struct DirectoryListView: View {
     private func iconName(for entry: FileStore.Entry) -> String {
         if entry.isDirectory { return "folder.fill" }
 
+        let name = entry.name.lowercased()
+        if name.hasPrefix("dockerfile") || name.hasPrefix("containerfile") {
+            return "shippingbox.fill"
+        }
+
         switch entry.fileExtension {
         case "html", "htm", "xhtml": return "chevron.left.forwardslash.chevron.right"
-        case "css": return "paintbrush.fill"
-        case "js", "mjs", "ts", "jsx", "tsx": return "curlybraces"
-        case "json", "yml", "yaml", "toml": return "list.bullet.rectangle"
-        case "png", "jpg", "jpeg", "gif", "webp", "heic", "avif": return "photo.fill"
+        case "css", "scss", "sass", "less": return "paintbrush.fill"
+        case "js", "mjs", "cjs", "ts", "jsx", "tsx", "vue", "svelte": return "curlybraces"
+        case "json", "jsonc", "json5", "jsonl", "ndjson", "geojson",
+             "yml", "yaml", "toml", "ini", "conf", "config", "env", "lock":
+            return "list.bullet.rectangle"
+        case "png", "jpg", "jpeg", "gif", "webp", "heic", "avif", "apng": return "photo.fill"
         case "svg": return "scribble.variable"
-        case "mp4", "mov", "m4v", "webm": return "film.fill"
-        case "mp3", "wav", "m4a", "ogg": return "waveform"
+        case "mp4", "mov", "m4v", "webm", "mkv", "avi": return "film.fill"
+        case "mp3", "wav", "m4a", "ogg", "flac", "opus": return "waveform"
         case "pdf": return "doc.richtext.fill"
-        case "md", "txt": return "text.alignleft"
+        case "zip", "gz", "tar": return "archivebox.fill"
+        case "glb", "gltf", "obj": return "cube.fill"
+        case "woff", "woff2", "ttf", "otf": return "textformat"
+        case "md", "markdown", "txt", "log": return "text.alignleft"
         default: return "doc.fill"
         }
     }
@@ -420,13 +460,20 @@ struct DirectoryListView: View {
     private func iconColor(for entry: FileStore.Entry) -> Color {
         if entry.isDirectory { return .blue }
 
+        let name = entry.name.lowercased()
+        if name.hasPrefix("dockerfile") || name.hasPrefix("containerfile") {
+            return .blue
+        }
+
         switch entry.fileExtension {
         case "html", "htm", "xhtml": return .orange
-        case "css": return .indigo
-        case "js", "mjs", "ts": return .yellow
-        case "json", "yml", "yaml", "toml": return .purple
-        case "png", "jpg", "jpeg", "gif", "webp", "heic", "avif", "svg": return .pink
-        case "mp4", "mov", "m4v", "webm": return .teal
+        case "css", "scss", "sass", "less": return .indigo
+        case "js", "mjs", "ts", "tsx": return .yellow
+        case "json", "jsonc", "json5", "yml", "yaml", "toml", "ini", "conf": return .purple
+        case "png", "jpg", "jpeg", "gif", "webp", "heic", "avif", "svg", "apng": return .pink
+        case "mp4", "mov", "m4v", "webm", "mkv", "avi": return .teal
+        case "mp3", "wav", "m4a", "ogg", "flac", "opus": return .mint
+        case "zip", "gz", "tar": return .brown
         default: return .gray
         }
     }

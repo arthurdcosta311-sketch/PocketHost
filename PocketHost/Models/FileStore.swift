@@ -45,7 +45,7 @@ final class FileStore: ObservableObject {
         var fileExtension: String { url.pathExtension.lowercased() }
 
         var isHTML: Bool { ["html", "htm", "xhtml"].contains(fileExtension) }
-        var isEditable: Bool { FileStore.editableExtensions.contains(fileExtension) }
+        var isEditable: Bool { FileStore.isEditable(url) }
         var isImage: Bool { ["png", "jpg", "jpeg", "gif", "webp", "heic", "avif", "svg"].contains(fileExtension) }
 
         var sizeText: String {
@@ -58,10 +58,51 @@ final class FileStore: ObservableObject {
     }
 
     static let editableExtensions: Set<String> = [
-        "html", "htm", "xhtml", "css", "js", "mjs", "cjs", "json", "txt", "md",
-        "svg", "xml", "csv", "yml", "yaml", "toml", "ts", "jsx", "tsx", "php",
-        "py", "sh", "map", "webmanifest", "glsl", "frag", "vert", "sql"
+        "html", "htm", "xhtml", "css", "scss", "sass", "less", "styl",
+        "js", "mjs", "cjs", "jsx", "ts", "tsx", "vue", "svelte", "astro",
+        "json", "jsonc", "json5", "jsonl", "ndjson", "geojson", "map", "webmanifest",
+        "yml", "yaml", "toml", "ini", "conf", "config", "properties", "env", "lock",
+        "txt", "md", "markdown", "csv", "tsv", "log", "srt", "vtt",
+        "xml", "svg", "plist", "sql", "graphql", "gql", "proto",
+        "py", "rb", "php", "sh", "zsh", "bash", "bat", "ps1", "lua", "pl", "r",
+        "go", "rs", "java", "kt", "kts", "swift", "c", "h", "hpp", "cpp", "cc", "cs",
+        "dockerfile", "containerfile", "gitignore", "gitattributes", "dockerignore",
+        "editorconfig", "npmrc", "babelrc", "eslintrc", "prettierrc", "tf", "tfvars",
+        "glsl", "frag", "vert", "wgsl", "hlsl", "metal"
     ]
+
+    /// Files that are text even though they carry no extension.
+    static let editableNames: Set<String> = [
+        "dockerfile", "containerfile", "makefile", "procfile", "gemfile",
+        "brewfile", "rakefile", "vagrantfile", "justfile", "license", "licence",
+        "readme", "changelog", "authors", "notice", "cmakelists"
+    ]
+
+    static func isEditable(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        let fileExtension = url.pathExtension.lowercased()
+
+        if !fileExtension.isEmpty { return editableExtensions.contains(fileExtension) }
+        if editableNames.contains(name) { return true }
+        if name.hasPrefix("dockerfile") || name.hasPrefix("containerfile") { return true }
+        return name.hasPrefix(".")
+    }
+
+    /// Starter contents for a new file, based on what it is going to be.
+    static func template(for name: String) -> String {
+        switch (name as NSString).pathExtension.lowercased() {
+        case "html", "htm", "xhtml":
+            return htmlTemplate
+        case "css", "scss", "sass", "less":
+            return "/* \(name) */\n"
+        case "js", "mjs", "cjs", "jsx", "ts", "tsx":
+            return "// \(name)\n"
+        case "json", "jsonc", "json5", "geojson":
+            return "{}\n"
+        default:
+            return ""
+        }
+    }
 
     static let htmlTemplate = #"""
     <!doctype html>
@@ -210,7 +251,7 @@ final class FileStore: ObservableObject {
         bump()
     }
 
-    func createFile(named name: String, in directory: URL, content: String = FileStore.htmlTemplate) throws -> URL {
+    func createFile(named name: String, in directory: URL, content: String? = nil) throws -> URL {
         var clean = sanitize(name)
         guard !clean.isEmpty else { throw FileStoreError.invalidName }
         if !clean.contains(".") { clean += ".html" }
@@ -219,7 +260,9 @@ final class FileStore: ObservableObject {
         guard !FileManager.default.fileExists(atPath: url.path) else {
             throw FileStoreError.alreadyExists(clean)
         }
-        guard (try? content.write(to: url, atomically: true, encoding: .utf8)) != nil else {
+
+        let body = content ?? FileStore.template(for: clean)
+        guard (try? body.write(to: url, atomically: true, encoding: .utf8)) != nil else {
             throw FileStoreError.writeFailed
         }
         bump()

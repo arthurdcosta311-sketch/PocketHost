@@ -14,6 +14,9 @@ else on the network — and it ships with a full browser to look at the result.
   seek properly, and a 40-entry live request log.
 - **Any file type**: HTML, CSS, JavaScript, modules, JSON, WebAssembly, images,
   fonts, SVG, video, audio, PDF and more, with a MIME table in `MIMEType.swift`.
+  Source, config and container files count too — `.json`, `.js`, `.ts`, `.css`,
+  `.yml`, `.toml`, `.env`, `.rs`, `.go`, `.tf`, `Dockerfile` and the rest are
+  served with sensible types and open in the editor even without an extension.
 - **A real browser engine**: WKWebView renders the hosted pages with
   JIT-compiled JavaScript, WebGL 2 on the GPU, WebAssembly, Web Workers and
   OffscreenCanvas. Its layer is set up for extended dynamic range, and served
@@ -25,7 +28,8 @@ else on the network — and it ships with a full browser to look at the result.
 - **Files tab**: browse the hosted folder, import files or whole folders from the
   Files app, create files and folders, and edit text-based files in place. A
   `.zip` dropped in is unpacked into a folder named after it, so a site can be
-  imported in one go.
+  imported in one go. Assets — images, audio, video, PDFs, fonts, models — open
+  in a Quick Look preview instead of the editor.
 - **Shareable address**: the app shows the LAN URL and a QR code so another phone
   or a laptop can open the same site.
 - **Reachable from anywhere**: asks the router for a TCP port mapping (NAT-PMP,
