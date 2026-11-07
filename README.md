@@ -1,6 +1,6 @@
 # PocketHost
 
-[![Build & Release](https://github.com/OWNER/REPO/actions/workflows/build.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/build.yml)
+[![Build & Release](https://github.com/arthurdcosta311-sketch/PocketHost/actions/workflows/build.yml/badge.svg)](https://github.com/arthurdcosta311-sketch/PocketHost/actions/workflows/build.yml)
 
 A web server in your pocket. PocketHost serves a folder of files over HTTP from
 the iPhone itself, at `localhost` for the device and over Wi-Fi for everything
