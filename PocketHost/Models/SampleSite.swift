@@ -526,7 +526,18 @@ enum SampleSite {
         {
           name: 'Web Crypto',
           run: function () {
-            return (typeof crypto !== 'undefined' && crypto.subtle) ? 'available' : 'missing';
+            if (typeof crypto === 'undefined' || !crypto.subtle) { return 'missing'; }
+            var via = (window.PocketHostCrypto && window.PocketHostCrypto.shim) ? 'shim' : 'native';
+            return crypto.subtle.digest('SHA-256', new Uint8Array(0)).then(function (buffer) {
+              var view = new Uint8Array(buffer);
+              var hex = '';
+              for (var i = 0; i < 4; i++) {
+                hex += (view[i] + 0x100).toString(16).substring(1);
+              }
+              return hex === 'e3b0c442' ? 'SHA-256 verified · ' + via : 'wrong digest ' + hex + ' · ' + via;
+            }).catch(function (error) {
+              return 'failed: ' + ((error && error.message) || error);
+            });
           }
         },
         {
@@ -556,7 +567,7 @@ enum SampleSite {
       ];
 
       function isGood(value) {
-        return !/^(missing|failed|timed out|unexpected|unknown)/i.test(value);
+        return !/^(missing|failed|timed out|unexpected|unknown|wrong)/i.test(value);
       }
 
       function makeRow(name) {

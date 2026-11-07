@@ -16,12 +16,23 @@ else on the network — and it ships with a full browser to look at the result.
   fonts, SVG, video, audio, PDF and more, with a MIME table in `MIMEType.swift`.
 - **A real browser engine**: WKWebView renders the hosted pages with
   JIT-compiled JavaScript, WebGL 2 on the GPU, WebAssembly, Web Workers and
-  OffscreenCanvas.
+  OffscreenCanvas. Its layer is set up for extended dynamic range, and served
+  pages are told `dynamic-range-limit: no-limit`, so high dynamic range images and
+  video are not tone-mapped down to SDR before they reach the screen.
+- **Full-screen pages**: one tap hides the browser's own controls, the tab bar and
+  the status bar, so a game or a video fills the screen; a small floating button
+  brings the chrome back.
 - **Files tab**: browse the hosted folder, import files or whole folders from the
   Files app, create files and folders, and edit text-based files in place.
 - **Shareable address**: the app shows the LAN URL and a QR code so another phone
   or a laptop can open the same site.
+- **Reachable from anywhere**: asks the router for a TCP port mapping (NAT-PMP,
+  then UPnP IGD) and falls back to the device's own global IPv6 address, then
+  shows the internet-facing URL with a QR code. The mapping is renewed while the
+  server runs and removed when it stops.
 - **Bonjour**: advertises itself as an `_http._tcp` service on the network.
+- **Web Crypto everywhere**: plain HTTP is not a secure context, so a shim gives
+  every page a working `crypto.subtle` backed by the phone's own CryptoKit.
 - **Never blocks the page**: if the chosen port is already taken the server walks
   up to the next free one, and the browser finishes a load on its own as soon as
   the listener is up instead of leaving a dead page behind.
@@ -71,10 +82,28 @@ own copy instantly while it revalidates in the background. The Server tab shows
 how much the connected devices have kept. Turning **Cache files on connected
 devices** off in Settings sends `no-store` for everything instead.
 
-Answers that would need more than **512 MB** are detected from their length and
-reported against the app's live footprint on the Server tab. The file is streamed
-either way, which is what keeps the app inside its budget; blocking one is opt-in
-in Settings, not the default.
+Files are streamed in chunks, so a multi-gigabyte one costs no more memory than a
+small one: PocketHost puts **no ceiling** on what it serves, and nothing is
+refused for its size. The Server tab reports the app's own memory footprint as a
+readout.
+
+## Web Crypto
+
+Browsers only expose `crypto.subtle` in a secure context, and PocketHost serves
+plain HTTP over the network, so pages used to find it missing. Every HTML page is
+now sent with a small shim script first (`/.pockethost/webcrypto.js`). Where the
+browser already has real Web Crypto the script returns immediately; where it does
+not, it fills in `crypto.subtle` and `crypto.randomUUID` and forwards each call to
+`/.pockethost/crypto`, which does the work on the phone with CryptoKit: digests
+(SHA-1, SHA-256, SHA-384, SHA-512), HMAC sign and verify, AES-GCM encrypt and
+decrypt, and PBKDF2 and HKDF derivation. Key bytes only travel to this phone's own
+server, and the results come back as the same `ArrayBuffer`s the real API returns.
+A call goes out as a `POST`; if something between the page and the server blocks
+one, the same request is retried as a `GET` with the payload in the query.
+
+The capability lab in the seeded site runs a real SHA-256 through it and compares
+the digest of the empty string with its known value, so a break in the chain shows
+up as a failing row instead of silence.
 
 The **on-device runner** exercises the site on the phone itself: every 15 seconds,
 when no other machine has asked for anything recently, it GETs the entry page and
@@ -90,9 +119,10 @@ interactive still needs a real client.
   App Store review may ask about it, since it is a background-location use.
 - If location permission is denied, the server still runs while the app is on
   screen, and iOS may pause it shortly after you switch away.
-- The server is reachable on the local network only. Serving to the public
-  internet would need a tunnel or port forwarding on a router, which an app
-  cannot set up by itself.
+- The address that reaches the internet comes from the router. It needs a router
+  that speaks NAT-PMP or UPnP, or a device with a globally routable IPv6 address.
+  A provider that puts the router behind its own NAT cannot be opened from inside,
+  and PocketHost says so on the Server tab instead of pretending.
 
 ## Layout
 

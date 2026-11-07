@@ -15,9 +15,34 @@ struct BrowserView: View {
 
     @FocusState private var addressFocused: Bool
 
+    /// The page on its own: no address bar, no controls, no tab bar.
+    @State private var isFullScreen = false
+
     var body: some View {
+        content
+            .onAppear {
+                if store.isRunning && !browser.hasContent {
+                    browser.loadCurrentAddress()
+                }
+            }
+            .onChange(of: store.isRunning) { _, running in
+                guard running else { return }
+
+                // The server just came up: finish whatever was waiting instead of
+                // sitting on a dead page until someone taps reload.
+                if browser.hasContent {
+                    browser.retryFailedLoad()
+                } else {
+                    browser.loadCurrentAddress()
+                }
+            }
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
-            addressBar
+            if !isFullScreen {
+                addressBar
+            }
 
             ZStack(alignment: .top) {
                 WebViewContainer(model: browser)
@@ -37,24 +62,49 @@ struct BrowserView: View {
                 errorBanner(message)
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            controls
-        }
-        .onAppear {
-            if store.isRunning && !browser.hasContent {
-                browser.loadCurrentAddress()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !isFullScreen {
+                controls
             }
         }
-        .onChange(of: store.isRunning) { _, running in
-            guard running else { return }
+        .overlay(alignment: .topTrailing) {
+            if isFullScreen {
+                exitFullScreenButton
+            }
+        }
+        .toolbar(isFullScreen ? .hidden : .visible, for: .tabBar)
+        .persistentSystemOverlays(isFullScreen ? .hidden : .automatic)
+        .animation(.snappy, value: isFullScreen)
+    }
 
-            // The server just came up: finish whatever was waiting instead of
-            // sitting on a dead page until someone taps reload.
-            if browser.hasContent {
-                browser.retryFailedLoad()
-            } else {
-                browser.loadCurrentAddress()
-            }
+    // MARK: - Fullscreen
+
+    private var exitFullScreenButton: some View {
+        Button {
+            leaveFullScreen()
+        } label: {
+            Image(systemName: "arrow.down.right.and.arrow.up.left")
+                .font(.system(size: 14, weight: .semibold))
+                .padding(.horizontal, 13)
+                .padding(.vertical, 10)
+                .background(.thinMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 8)
+        .padding(.trailing, 14)
+        .accessibilityLabel("Leave fullscreen")
+    }
+
+    private func enterFullScreen() {
+        addressFocused = false
+        withAnimation(.snappy) {
+            isFullScreen = true
+        }
+    }
+
+    private func leaveFullScreen() {
+        withAnimation(.snappy) {
+            isFullScreen = false
         }
     }
 
@@ -190,6 +240,11 @@ struct BrowserView: View {
             }
             .buttonStyle(.plain)
             .disabled(browser.currentURL.isEmpty)
+
+            controlButton("arrow.up.left.and.arrow.down.right", enabled: true) {
+                enterFullScreen()
+            }
+            .accessibilityLabel("Fullscreen")
         }
         .padding(.horizontal, 8)
         .padding(.top, 6)
@@ -247,13 +302,31 @@ struct WebViewContainer: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let webView = model.webView
-        webView.isOpaque = true
-        webView.backgroundColor = .systemBackground
+
+        // Let Core Animation composite the page over the system background
+        // instead of flattening it into one opaque, standard-range layer.
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
         webView.underPageBackgroundColor = .systemBackground
+
+        enableExtendedDynamicRange(webView.layer)
         return webView
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        enableExtendedDynamicRange(uiView.layer)
+    }
+
+    /// Asks the layer for extended dynamic range rendering. There is no public
+    /// WKWebView switch for HDR — what WebKit can put on screen depends on the
+    /// system — but without this the layer itself caps the result at SDR.
+    private func enableExtendedDynamicRange(_ layer: CALayer) {
+        if #available(iOS 26.0, *) {
+            layer.preferredDynamicRange = .high
+        } else {
+            layer.wantsExtendedDynamicRangeContent = true
+        }
+    }
 }
 
 #Preview {

@@ -192,6 +192,9 @@ final class HTTPConnection {
     var onClose: (() -> Void)?
 
     private var buffer = Data()
+    private var pendingRequest: HTTPRequest?
+    private var expectedBody = 0
+    private var requestBody = Data()
     private var pending: (request: HTTPRequest?, response: HTTPResponse)?
     private var finished = false
     private var didRespond = false
@@ -247,7 +250,9 @@ final class HTTPConnection {
 
                 if let separator = self.buffer.range(of: Data("\r\n\r\n".utf8)) {
                     let headData = Data(self.buffer[self.buffer.startIndex..<separator.lowerBound])
-                    self.handleHead(headData)
+                    let rest = Data(self.buffer[separator.upperBound...])
+                    self.buffer = Data()
+                    self.handleHead(headData, rest: rest)
                     return
                 }
             }
@@ -277,7 +282,7 @@ final class HTTPConnection {
         }
     }
 
-    private func handleHead(_ data: Data) {
+    private func handleHead(_ data: Data, rest: Data) {
         let head = String(decoding: data, as: UTF8.self)
 
         guard let request = HTTPRequest(head: head) else {
@@ -292,7 +297,85 @@ final class HTTPConnection {
             return
         }
 
-        respond(responder.respond(to: request), request: request)
+        guard request.method == "POST" else {
+            respond(responder.respond(to: request), request: request)
+            return
+        }
+
+        // A POST carries a body: the crypto endpoint is the only one that takes
+        // one, so anything else is answered without waiting for it.
+        let declared = Int(request.headers["content-length"] ?? "0") ?? 0
+        guard declared > 0 else {
+            respond(responder.respond(to: request, body: Data()), request: request)
+            return
+        }
+
+        guard declared <= WebCrypto.maximumBodyBytes else {
+            respond(
+                HTTPResponder.message(
+                    .requestTooLarge,
+                    title: "Request too large",
+                    detail: "The crypto endpoint accepts up to \(WebCrypto.maximumBodyBytes / (1024 * 1024)) MB."
+                ),
+                request: request
+            )
+            return
+        }
+
+        pendingRequest = request
+        expectedBody = declared
+        requestBody = rest
+
+        if requestBody.count >= expectedBody {
+            completeRequest(request, body: requestBody)
+        } else {
+            receiveBody()
+        }
+    }
+
+    private func receiveBody() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
+            guard let self, !self.finished, let request = self.pendingRequest else { return }
+
+            if let data, !data.isEmpty {
+                self.requestBody.append(data)
+
+                if self.requestBody.count > self.expectedBody {
+                    self.requestBody = Data(self.requestBody.prefix(self.expectedBody))
+                }
+
+                if self.requestBody.count >= self.expectedBody {
+                    self.completeRequest(request, body: self.requestBody)
+                    return
+                }
+            }
+
+            if error != nil {
+                self.close()
+                return
+            }
+
+            if isComplete {
+                self.respond(
+                    HTTPResponder.message(
+                        .badRequest,
+                        title: "Incomplete request",
+                        detail: "The request body ended before it was complete."
+                    ),
+                    request: nil
+                )
+                return
+            }
+
+            self.receiveBody()
+        }
+    }
+
+    private func completeRequest(_ request: HTTPRequest, body: Data) {
+        pendingRequest = nil
+        requestBody = Data()
+        expectedBody = 0
+        respond(responder.respond(to: request, body: body), request: request)
     }
 
     // MARK: - Writing

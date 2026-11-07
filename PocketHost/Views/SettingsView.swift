@@ -31,10 +31,11 @@ struct SettingsView: View {
                     Toggle("Allow cross-origin requests", isOn: $store.corsEnabled)
                     Toggle("Advertise on Bonjour", isOn: $store.advertiseBonjour)
                     Toggle("Start automatically", isOn: $store.autoStart)
+                    Toggle("Open to the internet", isOn: $store.globalAccess)
                 } header: {
                     Text("Server")
                 } footer: {
-                    Text("Changing the port restarts a running server. Use a value between 1024 and 65535.")
+                    Text("Changing the port restarts a running server. Use a value between 1024 and 65535.\n\nOpening to the internet asks your router for a TCP port mapping (NAT-PMP, then UPnP), and falls back to this device's global IPv6 address when no router will open one. The address is shown on the Server tab. A router without either feature, or a provider that hides everything behind its own address, cannot be reached this way.")
                 }
 
                 Section {
@@ -59,15 +60,13 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    LabeledContent("Memory ceiling", value: "512 MB")
                     Toggle("Cache files on connected devices", isOn: $store.cachesOnDevice)
                     Toggle("Preload page runtimes", isOn: $store.prefetchRuntimes)
-                    Toggle("Block over-size responses", isOn: $store.refuseOversized)
                     Toggle("Run the site on-device when idle", isOn: $store.deviceRunnerEnabled)
                 } header: {
-                    Text("Runtime guard")
+                    Text("Runtimes")
                 } footer: {
-                    Text("Runtimes are kept by the devices that connect, not by this phone. Every page the server hands out is scanned for what it needs — scripts, modules, styles, fonts, images, WebAssembly and workers, including what its stylesheets pull in — and that list travels with the page as preload hints, so the client downloads those files straight away and stores them in its own cache. Pages revalidate every time, so an edit shows up on the next load, while assets stay on the client for five minutes and are then revalidated in the background. Turning caching off sends no-store instead. Answers over 512 MB are detected from their length and reported on the Server tab; they are streamed, and only blocked if you switch that on. The on-device runner fetches the entry page and its same-origin links by itself so the runtime stays warm without another device asking. It only issues GET requests — it never synthesises taps, keystrokes, controls or key maps, so anything interactive still needs a real client.")
+                    Text("Runtimes are kept by the devices that connect, not by this phone. Every page the server hands out is scanned for what it needs — scripts, modules, styles, fonts, images, WebAssembly and workers, including what its stylesheets pull in — and that list travels with the page as preload hints, so the client downloads those files straight away and stores them in its own cache. Pages revalidate every time, so an edit shows up on the next load, while assets stay on the client for a minute and are then revalidated in the background. Turning caching off sends no-store instead. There is no memory ceiling: files of every size are streamed in chunks, and the Server tab just reports what the app is using. The on-device runner fetches the entry page and its same-origin links by itself so the runtime stays warm without another device asking. It only issues GET requests — it never synthesises taps, keystrokes, controls or key maps, so anything interactive still needs a real client.")
                 }
 
                 Section {

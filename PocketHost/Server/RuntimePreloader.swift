@@ -40,18 +40,15 @@ final class RuntimePreloader {
     private var reported: Set<String> = []
     private let lock = NSLock()
 
-    /// Reads a document, finds everything it depends on and returns it with
-    /// preload hints in the head. Nil means "serve the file as it is on disk".
-    func preparedDocument(at url: URL, documentPath: String, root: URL) -> Data? {
+    /// Finds everything a document depends on and returns it with preload
+    /// hints in the head. Nil means "nothing to add".
+    func preparedDocument(
+        html: String,
+        documentPath: String,
+        root: URL,
+        modified: Date
+    ) -> String? {
         guard isEnabled else { return nil }
-
-        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
-              let size = values.fileSize,
-              size > 0,
-              Int64(size) <= Self.maximumDocumentBytes,
-              let data = try? Data(contentsOf: url),
-              let html = String(data: data, encoding: .utf8)
-        else { return nil }
 
         let references = RuntimeScanner.dependencies(inDocument: html, documentPath: documentPath)
         guard !references.isEmpty else { return nil }
@@ -99,18 +96,16 @@ final class RuntimePreloader {
 
         report(
             documentPath: documentPath,
-            modified: values.contentModificationDate ?? .distantPast,
+            modified: modified,
             dependencies: present,
             bytes: bytes,
             missing: missing
         )
 
         let markup = CacheHints.markup(for: present)
-        guard !markup.isEmpty,
-              let rewritten = CacheHints.insert(markup, into: html).data(using: .utf8)
-        else { return nil }
+        guard !markup.isEmpty else { return nil }
 
-        return rewritten
+        return CacheHints.insert(markup, into: html)
     }
 
     func resetHistory() {

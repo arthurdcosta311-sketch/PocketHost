@@ -11,6 +11,7 @@ struct ServerView: View {
 
     @State private var showingSettings = false
     @State private var showingShare = false
+    @State private var shareURL: String?
 
     var body: some View {
         NavigationStack {
@@ -42,7 +43,7 @@ struct ServerView: View {
                 SettingsView()
             }
             .sheet(isPresented: $showingShare) {
-                ShareSiteSheet(url: store.lanURLString ?? store.localURLString)
+                ShareSiteSheet(url: shareURL ?? store.lanURLString ?? store.localURLString)
             }
         }
     }
@@ -93,14 +94,17 @@ struct ServerView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.large)
 
-                    Button { showingShare = true } label: {
+                    Button {
+                        shareURL = store.globalURL ?? store.lanURLString
+                        showingShare = true
+                    } label: {
                         Image(systemName: "qrcode")
                             .font(.headline)
                             .frame(width: 24, height: 24)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
-                    .disabled(store.lanURLString == nil)
+                    .disabled((store.globalURL ?? store.lanURLString) == nil)
                     .accessibilityLabel("Share your site")
                 } else {
                     Button {
@@ -172,6 +176,17 @@ struct ServerView: View {
                 tint: .orange,
                 shareable: true
             )
+
+            Divider().padding(.leading, 62)
+
+            addressRow(
+                title: "Internet",
+                url: store.globalURL,
+                systemImage: "globe",
+                tint: .green,
+                shareable: store.globalURL != nil,
+                placeholder: store.globalAccess ? store.globalStatus : "Off · turn it on in Settings"
+            )
         }
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -184,7 +199,8 @@ struct ServerView: View {
         url: String?,
         systemImage: String,
         tint: Color,
-        shareable: Bool
+        shareable: Bool,
+        placeholder: String = "Join a Wi-Fi network to share"
     ) -> some View {
         HStack(spacing: 14) {
             Image(systemName: systemImage)
@@ -200,10 +216,10 @@ struct ServerView: View {
                 Text(title)
                     .font(.footnote.weight(.semibold))
 
-                Text(url ?? "Join a Wi-Fi network to share")
+                Text(url ?? placeholder)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .truncationMode(.middle)
             }
 
@@ -224,7 +240,10 @@ struct ServerView: View {
                 CopyButton(text: url)
 
                 if shareable {
-                    Button { showingShare = true } label: {
+                    Button {
+                        shareURL = url
+                        showingShare = true
+                    } label: {
                         Image(systemName: "qrcode")
                             .foregroundStyle(.secondary)
                     }
@@ -431,7 +450,7 @@ struct ServerView: View {
                     )
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Memory guard")
+                    Text("Memory")
                         .font(.footnote.weight(.semibold))
 
                     Text(memoryDetail)
@@ -448,14 +467,7 @@ struct ServerView: View {
     }
 
     private var memoryDetail: String {
-        let footprint = MemoryGuard.footprintText()
-
-        if let detection = store.guardDetections.first {
-            let verdict = detection.refused ? "refused" : "streamed"
-            return "App at \(footprint) of 512 MB · last request over the ceiling: \(detection.path) (\(FileStore.sizeText(detection.bytes))) \(verdict)"
-        }
-
-        return "App at \(footprint) of 512 MB · nothing over the ceiling seen"
+        "App using \(MemoryFootprint.text()) · no ceiling, every file streams"
     }
 
     private var prefetchRow: some View {

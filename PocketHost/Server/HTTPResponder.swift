@@ -24,14 +24,39 @@ struct HTTPResponder {
 
     // MARK: - Dispatch
 
-    func respond(to request: HTTPRequest) -> HTTPResponse {
+    func respond(to request: HTTPRequest, body: Data? = nil) -> HTTPResponse {
+        if request.path == WebCrypto.endpointPath {
+            switch request.method {
+            case "POST":
+                if let body, !body.isEmpty {
+                    return WebCrypto.handle(body)
+                }
+                return WebCrypto.handle(query: request.query)
+            case "GET", "HEAD":
+                return WebCrypto.handle(query: request.query)
+            case "OPTIONS":
+                return WebCrypto.options()
+            default:
+                break
+            }
+        }
+
+        if request.path == WebCryptoShim.scriptPath,
+           request.method == "GET" || request.method == "HEAD" {
+            return WebCryptoShim.response(
+                forHead: request.method == "HEAD",
+                cacheControl: Self.cacheControl(mimeType: "application/javascript", onDevice: cachesOnDevice),
+                cors: cors
+            )
+        }
+
         guard request.method == "GET" || request.method == "HEAD" else {
             var response = Self.message(
                 .methodNotAllowed,
                 title: "Method not allowed",
-                detail: "PocketHost only answers GET and HEAD requests."
+                detail: "PocketHost answers GET and HEAD, plus POST, GET and OPTIONS on its own crypto endpoint."
             )
-            response.headers["Allow"] = "GET, HEAD"
+            response.headers["Allow"] = "GET, HEAD, POST, OPTIONS"
             return response
         }
 
@@ -111,7 +136,12 @@ struct HTTPResponder {
 
         let total = Self.fileSize(at: url)
         let modified = Self.modificationDate(at: url)
-        let etag = "\"\(total)-\(Int(modified.timeIntervalSince1970))\""
+
+        // The bytes that go out are not always the bytes on disk: documents get
+        // the Web Crypto shim and preload hints added. The validator has to
+        // carry that revision, or a client holding a page from before those
+        // edits revalidates as current and never receives the shim.
+        let etag = "\"\(total)-\(Int(modified.timeIntervalSince1970))-\(Self.representationRevision)\""
 
         var headers: [String: String] = [
             "Content-Type": mimeType,
@@ -150,34 +180,33 @@ struct HTTPResponder {
             }
         }
 
-        // Anything whose answer would need more than the memory ceiling is
-        // spotted from its length before a byte is read and reported against
-        // the live footprint. Byte-range requests ask for a slice, so only the
-        // full document is measured. Files are streamed either way, so the
-        // answer never costs the app that memory.
-        if length > MemoryGuard.ceilingBytes {
-            MemoryGuard.shared.report(path: request.path, bytes: length)
-
-            if MemoryGuard.shared.refusesOversized {
-                return Self.message(
-                    .forbidden,
-                    title: "Over the memory ceiling",
-                    detail: "\(url.lastPathComponent) is \(FileStore.sizeText(length)), larger than the 512 MB PocketHost keeps in memory. Turn off \u{201C}Block over-size responses\u{201D} in Settings to stream it instead."
-                )
-            }
-        }
-
+        // Files are streamed in chunks, so a response costs the same memory
+        // whatever its size. There is no ceiling to police: every file the
+        // folder holds is served as it is.
         headers["Content-Length"] = String(length)
 
-        // A page is where its runtimes become knowable. They travel out as
-        // preload hints, so the device that asked for the page downloads them
-        // straight away and keeps them in its own cache: nothing is stored or
-        // copied here.
+        // A page is where its runtimes become knowable, and where the Web Crypto
+        // shim has to be in place before anything else on it runs. Preload hints
+        // and the shim travel out with the document; nothing is stored here.
         if offset == 0,
            length == total,
            total > 0,
+           total <= RuntimePreloader.maximumDocumentBytes,
            mimeType.hasPrefix("text/html"),
-           let document = RuntimePreloader.shared.preparedDocument(at: url, documentPath: request.path, root: root) {
+           let raw = try? Data(contentsOf: url),
+           let source = String(data: raw, encoding: .utf8) {
+            var html = DisplayHints.injected(into: source)
+
+            if let prepared = RuntimePreloader.shared.preparedDocument(
+                html: html,
+                documentPath: request.path,
+                root: root,
+                modified: modified
+            ) {
+                html = prepared
+            }
+
+            let document = Data(html.utf8)
             headers["Content-Length"] = String(document.count)
             return HTTPResponse(
                 status: .ok,
@@ -308,6 +337,10 @@ struct HTTPResponder {
     }
 
     // MARK: - Helpers
+
+    /// Bumped whenever what this server sends for a document stops matching the
+    /// file on disk, so every cached copy is fetched again after the change.
+    static let representationRevision = "r2"
 
     /// Pages always revalidate, so an edit shows up on the next load. Every
     /// other file is kept by the device that fetched it: a repeat navigation

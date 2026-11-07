@@ -70,12 +70,12 @@ final class HostingStore: ObservableObject {
         }
     }
 
-    /// Refuse any single response that would need more than the 512 MB ceiling
-    /// in memory. Turning it off keeps the detection but streams instead.
-    @Published var refuseOversized: Bool {
+    /// Ask the router to forward the port, so the site is reachable from
+    /// outside the local network as well.
+    @Published var globalAccess: Bool {
         didSet {
             persist()
-            MemoryGuard.shared.refusesOversized = refuseOversized
+            applyGlobalPolicy()
         }
     }
 
@@ -108,7 +108,6 @@ final class HostingStore: ObservableObject {
         }
     }
 
-    @Published private(set) var guardDetections: [MemoryGuard.Detection] = []
     @Published private(set) var deviceRunCount = 0
     @Published private(set) var lastDeviceRun: Date?
     @Published private(set) var prefetchSummaries: [RuntimePreloader.Summary] = []
@@ -116,8 +115,14 @@ final class HostingStore: ObservableObject {
     @Published private(set) var deviceStoredBytes: Int64 = 0
     @Published private(set) var deviceStoredCount = 0
 
+    /// The address the internet can reach, when the router agreed to forward
+    /// the port or the phone has a global IPv6 address of its own.
+    @Published private(set) var globalURL: String?
+    @Published private(set) var globalStatus = "Off"
+
     let files: FileStore
     let background = BackgroundKeeper()
+    let global = GlobalAccess()
 
     private let server: HTTPServer
     private let runner = LocalRunner()
@@ -137,10 +142,10 @@ final class HostingStore: ObservableObject {
         static let autoStart = "pockethost.autoStart"
         static let backgroundHosting = "pockethost.backgroundHosting"
         static let keepScreenAwake = "pockethost.keepScreenAwake"
-        static let refuseOversized = "pockethost.refuseOversized"
         static let deviceRunner = "pockethost.deviceRunner"
         static let prefetchRuntimes = "pockethost.prefetchRuntimes"
         static let cachesOnDevice = "pockethost.cacheOnDevice"
+        static let globalAccess = "pockethost.globalAccess"
     }
 
     // MARK: - Life cycle
@@ -158,10 +163,10 @@ final class HostingStore: ObservableObject {
         self.autoStart = defaults.object(forKey: Keys.autoStart) as? Bool ?? true
         self.backgroundHosting = defaults.object(forKey: Keys.backgroundHosting) as? Bool ?? true
         self.keepScreenAwake = defaults.object(forKey: Keys.keepScreenAwake) as? Bool ?? true
-        self.refuseOversized = defaults.object(forKey: Keys.refuseOversized) as? Bool ?? false
         self.deviceRunnerEnabled = defaults.object(forKey: Keys.deviceRunner) as? Bool ?? true
         self.prefetchRuntimes = defaults.object(forKey: Keys.prefetchRuntimes) as? Bool ?? true
         self.cachesOnDevice = defaults.object(forKey: Keys.cachesOnDevice) as? Bool ?? true
+        self.globalAccess = defaults.object(forKey: Keys.globalAccess) as? Bool ?? false
 
         self.server = HTTPServer(
             configuration: HTTPServer.Configuration(
@@ -185,13 +190,8 @@ final class HostingStore: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        MemoryGuard.shared.refusesOversized = refuseOversized
-        MemoryGuard.shared.onDetection = { [weak self] detection in
-            guard let self else { return }
-            self.guardDetections.insert(detection, at: 0)
-            if self.guardDetections.count > 5 {
-                self.guardDetections.removeLast(self.guardDetections.count - 5)
-            }
+        global.onStateChange = { [weak self] state in
+            self?.apply(state)
         }
 
         runner.shouldRun = { [weak self] in
@@ -353,12 +353,14 @@ final class HostingStore: ObservableObject {
             applyBackgroundPolicy()
             applyScreenPolicy()
             applyRunnerPolicy()
+            applyGlobalPolicy()
 
         case .stopped:
             isStarting = false
             isRunning = false
             startedAt = nil
             runner.stop()
+            global.stop()
             background.setKeepAlive(false)
             UIApplication.shared.isIdleTimerDisabled = false
 
@@ -367,6 +369,7 @@ final class HostingStore: ObservableObject {
             isRunning = false
             lastError = message
             runner.stop()
+            global.stop()
             background.setKeepAlive(false)
             UIApplication.shared.isIdleTimerDisabled = false
 
@@ -414,6 +417,35 @@ final class HostingStore: ObservableObject {
         }
     }
 
+    /// A port mapping only means something while the listener is up.
+    private func applyGlobalPolicy() {
+        if globalAccess, isRunning {
+            global.start(port: UInt16(clamping: port))
+        } else {
+            global.stop()
+        }
+    }
+
+    private func apply(_ state: GlobalAccess.State) {
+        switch state {
+        case .off:
+            globalURL = nil
+            globalStatus = "Off"
+
+        case .searching:
+            globalURL = nil
+            globalStatus = "Asking the router for a port…"
+
+        case .available(let url, let method):
+            globalURL = url
+            globalStatus = "Public through the router · \(method)"
+
+        case .unavailable(let reason):
+            globalURL = nil
+            globalStatus = reason
+        }
+    }
+
     // MARK: - Persistence
 
     private func persist() {
@@ -424,9 +456,9 @@ final class HostingStore: ObservableObject {
         defaults.set(autoStart, forKey: Keys.autoStart)
         defaults.set(backgroundHosting, forKey: Keys.backgroundHosting)
         defaults.set(keepScreenAwake, forKey: Keys.keepScreenAwake)
-        defaults.set(refuseOversized, forKey: Keys.refuseOversized)
         defaults.set(deviceRunnerEnabled, forKey: Keys.deviceRunner)
         defaults.set(prefetchRuntimes, forKey: Keys.prefetchRuntimes)
         defaults.set(cachesOnDevice, forKey: Keys.cachesOnDevice)
+        defaults.set(globalAccess, forKey: Keys.globalAccess)
     }
 }
