@@ -24,6 +24,8 @@ enum RuntimeScanner {
             case worker
             case font
             case image
+            case media
+            case track
             case data
 
             var label: String {
@@ -35,6 +37,8 @@ enum RuntimeScanner {
                 case .worker: return "worker"
                 case .font: return "font"
                 case .image: return "image"
+                case .media: return "media"
+                case .track: return "track"
                 case .data: return "data"
                 }
             }
@@ -75,6 +79,27 @@ enum RuntimeScanner {
 
         for reference in references(pattern: #"import\s+(?:[^;"']*?\s+from\s+)?["']([^"']+)["']"#, in: html) {
             add(reference, kind: .module)
+        }
+
+        // Media elements: what a player streams its picture, sound and text from.
+        for reference in references(pattern: #"<source[^>]*\ssrc\s*=\s*["']([^"']+)"#, in: html) {
+            add(reference, kind: .media)
+        }
+
+        for reference in references(pattern: #"<audio[^>]*\ssrc\s*=\s*["']([^"']+)"#, in: html) {
+            add(reference, kind: .media)
+        }
+
+        for reference in references(pattern: #"<track[^>]*\ssrc\s*=\s*["']([^"']+)"#, in: html) {
+            add(reference, kind: .track)
+        }
+
+        for reference in references(pattern: #"<img[^>]*\ssrc\s*=\s*["']([^"']+)"#, in: html) {
+            add(reference, kind: .image)
+        }
+
+        for reference in references(pattern: #"<video[^>]*\sposter\s*=\s*["']([^"']+)"#, in: html) {
+            add(reference, kind: .image)
         }
 
         return results
@@ -153,8 +178,14 @@ enum RuntimeScanner {
         case "mjs": return .module
         case "wasm": return .wasm
         case "woff", "woff2", "ttf", "otf", "eot": return .font
-        case "png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "heic", "ico": return .image
-        case "json": return .data
+        case "png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "heic", "ico",
+             "apng", "bmp", "tiff":
+            return .image
+        case "mp4", "m4v", "m4s", "webm", "mov", "mkv", "ts", "m2ts", "mts",
+             "mp3", "m4a", "aac", "wav", "ogg", "oga", "flac", "opus", "ac3", "eac3":
+            return .media
+        case "vtt", "webvtt", "srt", "ass", "ssa", "sbv": return .track
+        case "json", "m3u8", "mpd", "m3u", "webmanifest", "gltf": return .data
         default: return nil
         }
     }

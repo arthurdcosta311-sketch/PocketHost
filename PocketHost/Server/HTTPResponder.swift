@@ -349,6 +349,13 @@ struct HTTPResponder {
     static func cacheControl(mimeType: String, onDevice: Bool) -> String {
         guard onDevice else { return "no-store" }
         if mimeType.hasPrefix("text/html") { return "no-cache" }
+
+        // Streaming manifests change constantly, and a stale one breaks playback,
+        // so they are always revalidated.
+        if mimeType.contains("mpegurl") || mimeType.contains("dash+xml") {
+            return "no-cache"
+        }
+
         return "public, max-age=60, stale-while-revalidate=86400"
     }
 

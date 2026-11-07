@@ -464,6 +464,10 @@ struct DirectoryListView: View {
             return "list.bullet.rectangle"
         case "png", "jpg", "jpeg", "gif", "webp", "heic", "avif", "apng": return "photo.fill"
         case "svg": return "scribble.variable"
+        case "m3u8", "m3u", "mpd", "pls":
+            return "list.bullet.rectangle"
+        case "ts", "m2ts", "mts", "m4s":
+            return "film.fill"
         case "mp4", "mov", "m4v", "webm", "mkv", "avi": return "film.fill"
         case "mp3", "wav", "m4a", "ogg", "flac", "opus": return "waveform"
         case "pdf": return "doc.richtext.fill"

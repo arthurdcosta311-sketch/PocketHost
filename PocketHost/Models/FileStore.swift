@@ -63,6 +63,7 @@ final class FileStore: ObservableObject {
         "json", "jsonc", "json5", "jsonl", "ndjson", "geojson", "map", "webmanifest",
         "yml", "yaml", "toml", "ini", "conf", "config", "properties", "env", "lock",
         "txt", "md", "markdown", "csv", "tsv", "log", "srt", "vtt",
+        "m3u8", "m3u", "mpd", "pls", "smil",
         "xml", "svg", "plist", "sql", "graphql", "gql", "proto",
         "py", "rb", "php", "sh", "zsh", "bash", "bat", "ps1", "lua", "pl", "r",
         "go", "rs", "java", "kt", "kts", "swift", "c", "h", "hpp", "cpp", "cc", "cs",

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7
+
+- Streaming formats are served properly: HLS playlists and segments (`.m3u8`,
+  `.ts`, `.m2ts`, `.mts`), DASH (`.mpd`, `.m4s`), fMP4 and fragmented audio,
+  subtitle formats (`.vtt`, `.srt`, `.ass`, `.ssa`), and `.flv`, `.f4v`, `.wmv`,
+  `.wma`, `.ac3`, `.eac3`, `.alac`, `.amr` all get their real content types.
+- Live streaming manifests (`.m3u8`, `.mpd`) are revalidated on every request so
+  a player never reads a stale playlist, while their segments keep normal caching.
+- Pages are scanned for `<source>`, `<audio>`, `<track>`, `<img>` and `<video
+  poster>` references too, so the runtimes report lists what a player streams.
+- Playlists are editable in the app like any other text file.
+
 ## 0.6
 
 - Fixed a crash: the MIME table had `.flac` twice, and a repeated key in a

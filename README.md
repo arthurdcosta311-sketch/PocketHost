@@ -20,6 +20,12 @@ else on the network — and it ships with a full browser to look at the result.
   Folders are just folders, whatever they are called (`assets`, `css`, `js`,
   `json` are all fine), and the new-file menu makes a page, stylesheet, script or
   JSON file from a fitting template.
+- **Streaming sources**: HLS playlists and segments (`.m3u8`, `.ts`, `.m2ts`),
+  DASH (`.mpd`, `.m4s`), fMP4, fragmented audio, subtitles, `.flv`, `.wmv`,
+  `.wma` and the rest are served with their real content types, so a player
+  recognises them. Byte ranges let it seek, and streaming manifests are always
+  revalidated instead of cached for a minute. Pages that stream are scanned for
+  `<source>`, `<track>`, `<img>` and poster URLs as well as scripts and styles.
 - **A real browser engine**: WKWebView renders the hosted pages with
   JIT-compiled JavaScript, WebGL 2 on the GPU, WebAssembly, Web Workers and
   OffscreenCanvas. Its layer is set up for extended dynamic range, and served

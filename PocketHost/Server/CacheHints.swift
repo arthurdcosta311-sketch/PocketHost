@@ -27,6 +27,12 @@ enum CacheHints {
             return "<link rel=\"preload\" href=\"\(href)\" as=\"font\" type=\"\(fontType(for: dependency.path))\" crossorigin>"
         case .image:
             return "<link rel=\"preload\" href=\"\(href)\" as=\"image\">"
+        case .track:
+            return "<link rel=\"preload\" href=\"\(href)\" as=\"track\">"
+        case .media:
+            // Media is streamed with byte ranges. Preloading it would pull the
+            // whole file instead of letting the player ask for what it needs.
+            return nil
         }
     }
 
