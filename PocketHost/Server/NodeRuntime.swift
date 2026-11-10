@@ -17,6 +17,24 @@ struct NodeRuntimeLog: Identifiable, Equatable {
     let text: String
 }
 
+/// Progress of the dependency installation that runs before a project starts.
+struct NodeDependencyInstall: Equatable {
+    enum Phase: Equatable {
+        case idle
+        case installing
+        case finished
+        case failed
+    }
+
+    var phase: Phase = .idle
+    var message: String?
+    var packages = 0
+    var warnings = 0
+    var fromLock = false
+
+    var isRunning: Bool { phase == .installing }
+}
+
 final class NodeRuntimeManager: ObservableObject {
     enum State: Equatable {
         case idle
@@ -52,6 +70,9 @@ final class NodeRuntimeManager: ObservableObject {
 
     var onActivityChange: ((Bool) -> Void)?
 
+    @Published private(set) var install = NodeDependencyInstall()
+
+    private var pendingStartScript: String?
     private var projectRoot: URL?
     private var runtimeDirectory: URL?
     private var readyFile: URL?
@@ -67,9 +88,10 @@ final class NodeRuntimeManager: ObservableObject {
 
     var isActive: Bool { Self.isActive(state) }
     var isProjectRunning: Bool { state == .running }
+    var isInstalling: Bool { install.isRunning }
 
     func start(projectRoot: URL, preferredPort: Int) {
-        guard state != .starting, state != .running, state != .stopping else { return }
+        guard state != .starting, state != .running, state != .stopping, !install.isRunning else { return }
 
         let script = entrypoint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !script.isEmpty else {
@@ -85,10 +107,39 @@ final class NodeRuntimeManager: ObservableObject {
         message = nil
         logs.removeAll()
         logSequence = 0
+        install = NodeDependencyInstall()
+        pendingStartScript = script
         state = .starting
 
         if runtimeReady {
-            startProject(script: script)
+            beginProjectFlow()
+        } else if engineHasStarted {
+            fail("The embedded Node.js runtime stopped. Relaunch PocketHost before starting it again.")
+        } else {
+            launchEngine()
+        }
+    }
+
+    /// Installs the project's dependencies without starting it.
+    func installDependencies(projectRoot: URL) {
+        guard state != .running, state != .starting, !install.isRunning else { return }
+
+        let root = projectRoot.standardizedFileURL
+        guard Self.hasPackageManifest(at: root) else {
+            message = "Add a package.json to the hosted folder before installing dependencies."
+            return
+        }
+
+        self.projectRoot = root
+        pendingStartScript = nil
+        message = nil
+        logs.removeAll()
+        logSequence = 0
+        install = NodeDependencyInstall()
+        state = .starting
+
+        if runtimeReady {
+            requestInstall(root: root, force: false)
         } else if engineHasStarted {
             fail("The embedded Node.js runtime stopped. Relaunch PocketHost before starting it again.")
         } else {
@@ -97,12 +148,21 @@ final class NodeRuntimeManager: ObservableObject {
     }
 
     func stop() {
+        if install.isRunning {
+            pendingStartScript = nil
+            request(path: "/install/cancel", method: "POST", payload: [:]) { _ in }
+            install.phase = .idle
+            install.message = "Dependency installation cancelled."
+            state = .idle
+            stopLogPolling()
+            return
+        }
+
         guard state == .running else { return }
         state = .stopping
         request(path: "/stop", method: "POST", payload: [:]) { [weak self] result in
             guard let self else { return }
-            self.logTimer?.invalidate()
-            self.logTimer = nil
+            self.stopLogPolling()
 
             switch result {
             case .success(let response):
@@ -123,7 +183,14 @@ final class NodeRuntimeManager: ObservableObject {
 
             let bootstrap = directory.appendingPathComponent("bootstrap.js")
             let readyFile = directory.appendingPathComponent("ready.json")
+            let installer = directory.appendingPathComponent("npm-install.js")
             try Self.bootstrap.write(to: bootstrap, atomically: true, encoding: .utf8)
+            if let source = Self.installerSource() {
+                try source.write(to: installer, atomically: true, encoding: .utf8)
+            } else {
+                try? FileManager.default.removeItem(at: installer)
+            }
+            try? FileManager.default.createDirectory(at: Self.cacheDirectory, withIntermediateDirectories: true)
             try? FileManager.default.removeItem(at: readyFile)
 
             let token = UUID().uuidString
@@ -132,7 +199,7 @@ final class NodeRuntimeManager: ObservableObject {
             runtimeToken = token
             engineHasStarted = true
 
-            let arguments = ["node", bootstrap.path, projectRoot?.path ?? "", readyFile.path, token]
+            let arguments = ["node", bootstrap.path, projectRoot?.path ?? "", readyFile.path, token, Self.cacheDirectory.path]
             let thread = Thread { [weak self] in
                 let cArguments: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) }
                 guard cArguments.allSatisfy({ $0 != nil }) else {
@@ -180,8 +247,7 @@ final class NodeRuntimeManager: ObservableObject {
                 self.readinessTimer = nil
                 self.runtimePort = ready.port
                 self.runtimeReady = true
-                let script = self.entrypoint.trimmingCharacters(in: .whitespacesAndNewlines)
-                self.startProject(script: script)
+                self.beginProjectFlow()
             } else if self.readinessAttempts >= 300 {
                 timer.invalidate()
                 self.readinessTimer = nil
@@ -205,12 +271,125 @@ final class NodeRuntimeManager: ObservableObject {
             switch result {
             case .success(let response):
                 self.message = response["message"] as? String ?? "Node project is running."
-                self.state = .running
-                self.startLogPolling()
+                if response["state"] as? String == "idle" {
+                    self.state = .idle
+                    self.fetchLogs()
+                } else {
+                    self.state = .running
+                    self.startLogPolling()
+                }
             case .failure(let error):
                 self.fail(error.localizedDescription)
             }
         }
+    }
+
+    /// Installs dependencies when the project has a package.json, then runs it.
+    private func beginProjectFlow() {
+        guard let root = projectRoot else {
+            fail("The hosted folder is not available.")
+            return
+        }
+
+        if Self.hasPackageManifest(at: root) {
+            requestInstall(root: root, force: false)
+        } else if let script = pendingStartScript {
+            startProject(script: script)
+        } else {
+            state = .idle
+            stopLogPolling()
+        }
+    }
+
+    private func requestInstall(root: URL, force: Bool) {
+        install = NodeDependencyInstall(phase: .installing, message: "Resolving dependencies…")
+        startLogPolling()
+
+        request(
+            path: "/install",
+            method: "POST",
+            payload: ["directory": root.path, "force": force, "includeDev": true]
+        ) { [weak self] result in
+            guard let self else { return }
+            if case .failure(let error) = result {
+                self.install.phase = .failed
+                self.install.message = error.localizedDescription
+                self.finishInstall(success: false)
+            }
+        }
+    }
+
+    private func finishInstall(success: Bool) {
+        let script = pendingStartScript
+        pendingStartScript = nil
+
+        if success, let script {
+            startProject(script: script)
+            return
+        }
+
+        if success {
+            state = .idle
+            message = install.message
+        } else {
+            state = .failed
+            message = install.message
+        }
+        stopLogPolling()
+    }
+
+    private func applyInstall(_ payload: [String: Any]?) {
+        guard let payload, let raw = payload["state"] as? String else { return }
+
+        switch raw {
+        case "installing":
+            guard install.phase != .installing else { return }
+            install = NodeDependencyInstall(phase: .installing, message: payload["message"] as? String)
+            state = .starting
+
+        case "finished":
+            guard install.phase == .installing else { return }
+            install.phase = .finished
+            install.message = payload["message"] as? String ?? "Dependencies installed."
+            if let summary = payload["summary"] as? [String: Any] {
+                install.packages = summary["packages"] as? Int ?? 0
+                install.warnings = summary["warnings"] as? Int ?? 0
+                install.fromLock = summary["fromLock"] as? Bool ?? false
+            }
+            finishInstall(success: true)
+
+        case "failed":
+            guard install.phase == .installing else { return }
+            install.phase = .failed
+            install.message = payload["message"] as? String ?? "Installing dependencies failed."
+            finishInstall(success: false)
+
+        default:
+            break
+        }
+    }
+
+    private func stopLogPolling() {
+        logTimer?.invalidate()
+        logTimer = nil
+    }
+
+    private static func hasPackageManifest(at root: URL) -> Bool {
+        FileManager.default.fileExists(atPath: root.appendingPathComponent("package.json").path)
+    }
+
+    private static var cacheDirectory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("PocketHost/npm-cache", isDirectory: true)
+    }
+
+    private static func installerSource() -> String? {
+        guard let url = Bundle.main.url(forResource: "npm-install", withExtension: "js"),
+              let source = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+        return source
     }
 
     private func startLogPolling() {
@@ -237,6 +416,15 @@ final class NodeRuntimeManager: ObservableObject {
             }
             if self.logs.count > 100 {
                 self.logs.removeFirst(self.logs.count - 100)
+            }
+            self.applyInstall(response["install"] as? [String: Any])
+            if response["state"] as? String == "idle", self.state == .running {
+                self.logTimer?.invalidate()
+                self.logTimer = nil
+                if let exitCode = response["exitCode"] as? Int {
+                    self.message = "Node project exited with code \(exitCode). PocketHost remains running."
+                }
+                self.state = .idle
             }
         }
     }
@@ -297,6 +485,11 @@ final class NodeRuntimeManager: ObservableObject {
         readinessTimer = nil
         logTimer?.invalidate()
         logTimer = nil
+        if install.isRunning {
+            install.phase = .failed
+            install.message = "The Node.js runtime exited before the dependencies were installed."
+        }
+        pendingStartScript = nil
         fail("The embedded Node.js runtime exited with status \(code). Relaunch PocketHost to start a new runtime.")
     }
 
@@ -330,15 +523,27 @@ final class NodeRuntimeManager: ObservableObject {
     const projectRoot = path.resolve(process.argv[2]);
     const readyFile = process.argv[3];
     const token = process.argv[4];
+    const cacheDirectory = process.argv[5] || '';
+    const installerPath = path.join(__dirname, 'npm-install.js');
     const logBuffer = [];
     const projectServers = new Set();
     const projectTimers = new Map();
     let sequence = 0;
     let projectState = 'idle';
+    let installState = 'idle';
+    let installMessage = null;
+    let installSummary = null;
+    let installCancelled = false;
     let active = false;
     let activeModule = null;
     let previousPort;
     let previousHost;
+    let previousExitCode;
+    let projectExitRequested = false;
+    let projectExitCode = 0;
+    let projectExitCleanupPromise = null;
+    let projectExitSignal = null;
+    let resolveProjectExitSignal = null;
 
     function writeLog(text) {
       const line = { sequence: ++sequence, text: String(text) };
@@ -409,6 +614,28 @@ final class NodeRuntimeManager: ObservableObject {
       projectTimers.delete(handle);
       return originalClearImmediate(handle);
     };
+
+    function requestProjectExit(code) {
+      if (!active || projectExitRequested || projectState === 'stopping') return;
+      projectExitRequested = true;
+      const numericCode = code === undefined ? 0 : Number(code);
+      projectExitCode = Number.isFinite(numericCode) ? Math.trunc(numericCode) : 1;
+      process.exitCode = projectExitCode;
+      writeLog(`[runtime] process.exit(${projectExitCode}) requested; stopping only the hosted project.`);
+      projectExitCleanupPromise = new Promise(resolve => {
+        originalSetImmediate(() => {
+          stopProject().then(() => {
+            if (resolveProjectExitSignal) resolveProjectExitSignal();
+            resolve();
+          }, error => {
+            writeLog(`[error] Could not stop the Node project: ${error.stack || error}`);
+            if (resolveProjectExitSignal) resolveProjectExitSignal();
+            resolve();
+          });
+        });
+      });
+    }
+    process.exit = requestProjectExit;
 
     function send(response, status, body) {
       const data = Buffer.from(JSON.stringify(body));
@@ -516,6 +743,7 @@ final class NodeRuntimeManager: ObservableObject {
       else process.env.PORT = previousPort;
       if (previousHost === undefined) delete process.env.HOST;
       else process.env.HOST = previousHost;
+      process.exitCode = previousExitCode;
       process.chdir(projectRoot);
       activeModule = null;
       projectState = 'idle';
@@ -524,6 +752,7 @@ final class NodeRuntimeManager: ObservableObject {
 
     async function startProject(options) {
       if (active) throw new Error('Stop the current Node project before starting another.');
+      if (installState === 'installing') throw new Error('Wait for the dependency installation to finish.');
       const entry = resolveEntry(options.entrypoint);
       const port = Number(options.port);
       if (!Number.isInteger(port) || port < 1024 || port > 65535) {
@@ -533,6 +762,11 @@ final class NodeRuntimeManager: ObservableObject {
       projectState = 'starting';
       previousPort = process.env.PORT;
       previousHost = process.env.HOST;
+      previousExitCode = process.exitCode;
+      projectExitRequested = false;
+      projectExitCode = 0;
+      projectExitCleanupPromise = null;
+      projectExitSignal = new Promise(resolve => { resolveProjectExitSignal = resolve; });
       process.env.PORT = String(port);
       process.env.HOST = '0.0.0.0';
       process.chdir(path.dirname(entry));
@@ -556,17 +790,82 @@ final class NodeRuntimeManager: ObservableObject {
           }
           activeModule = entryModule;
           const exported = entryModule.exports;
-          if (typeof exported === 'function') await exported();
-          else if (exported && typeof exported.start === 'function') await exported.start();
+          let startupResult;
+          if (typeof exported === 'function') startupResult = exported();
+          else if (exported && typeof exported.start === 'function') startupResult = exported.start();
+          if (startupResult && typeof startupResult.then === 'function') {
+            await Promise.race([startupResult, projectExitSignal]);
+          }
+        }
+        if (projectExitRequested) {
+          await projectExitCleanupPromise;
+          return {
+            message: `Node project exited with code ${projectExitCode}. PocketHost remains running.`,
+            state: 'idle',
+            exitCode: projectExitCode
+          };
         }
         projectState = 'running';
         writeLog(`[runtime] Running ${path.relative(projectRoot, entry)} with PORT=${port}.`);
-        return { message: `Running ${path.relative(projectRoot, entry)} on port ${port}.` };
+        return { message: `Running ${path.relative(projectRoot, entry)} on port ${port}.`, state: 'running' };
       } catch (error) {
         writeLog(`[error] ${error.stack || error}`);
         await stopProject();
         projectState = 'error';
         throw new Error(error.message || String(error));
+      }
+    }
+
+    function loadInstaller() {
+      try {
+        return require(installerPath);
+      } catch (error) {
+        throw new Error('The bundled npm installer could not be loaded: ' + (error && error.message ? error.message : error));
+      }
+    }
+
+    async function runInstall(options) {
+      const directory = path.resolve(projectRoot, String(options.directory || ''));
+      if (directory !== projectRoot && !directory.startsWith(projectRoot + path.sep)) {
+        throw new Error('Dependencies can only be installed inside the hosted www folder.');
+      }
+
+      installCancelled = false;
+      installState = 'installing';
+      installMessage = 'Resolving dependencies…';
+      installSummary = null;
+      writeLog('[npm] Install requested for ' + path.relative(projectRoot, directory || '.'));
+
+      try {
+        const installer = loadInstaller();
+        const summary = await installer.install({
+          projectRoot: directory,
+          cacheDirectory: cacheDirectory || undefined,
+          force: options.force === true,
+          includeDev: options.includeDev !== false,
+          isCancelled: () => installCancelled,
+          log: text => writeLog(text)
+        });
+
+        installSummary = {
+          status: summary.status,
+          packages: summary.packages,
+          bytes: summary.bytes,
+          warnings: summary.warnings.length,
+          fromLock: summary.fromLock === true
+        };
+        installState = 'finished';
+        installMessage = summary.status === 'up-to-date'
+          ? 'Dependencies are already installed (' + summary.packages + ' packages).'
+          : 'Installed ' + summary.packages + ' packages' + (summary.warnings.length
+            ? ' with ' + summary.warnings.length + ' note' + (summary.warnings.length === 1 ? '' : 's')
+            : '') + '.';
+        writeLog('[runtime] ' + installMessage);
+      } catch (error) {
+        installState = 'failed';
+        installMessage = error && error.message ? error.message : String(error);
+        installSummary = null;
+        writeLog('[error] ' + installMessage);
       }
     }
 
@@ -587,7 +886,47 @@ final class NodeRuntimeManager: ObservableObject {
       }
       if (request.method === 'GET' && url.pathname === '/logs') {
         const after = Number(url.searchParams.get('after') || 0);
-        send(response, 200, { items: logBuffer.filter(line => line.sequence > after) });
+        send(response, 200, {
+          items: logBuffer.filter(line => line.sequence > after),
+          state: projectState,
+          exitCode: projectExitRequested ? projectExitCode : null,
+          install: {
+            state: installState,
+            message: installMessage,
+            summary: installSummary
+          }
+        });
+        return;
+      }
+      if (request.method === 'POST' && url.pathname === '/install') {
+        if (active) {
+          send(response, 409, { error: 'Stop the Node project before installing dependencies.' });
+          return;
+        }
+        if (installState === 'installing') {
+          send(response, 409, { error: 'An installation is already running.' });
+          return;
+        }
+
+        let options;
+        try {
+          options = await readBody(request);
+        } catch (error) {
+          send(response, 400, { error: error.message || String(error) });
+          return;
+        }
+
+        runInstall(options).catch(error => {
+          installState = 'failed';
+          installMessage = error && error.message ? error.message : String(error);
+          writeLog('[error] ' + installMessage);
+        });
+        send(response, 202, { state: 'installing' });
+        return;
+      }
+      if (request.method === 'POST' && url.pathname === '/install/cancel') {
+        installCancelled = installState === 'installing';
+        send(response, 200, { state: installCancelled ? 'cancelling' : installState });
         return;
       }
       if (request.method === 'POST' && url.pathname === '/start') {

@@ -202,6 +202,33 @@ struct ServerView: View {
                 )
                 .accessibilityLabel("Node.js project entry file")
 
+            if hasNodeManifest {
+                HStack(spacing: 10) {
+                    Button {
+                        store.nodeRuntime.installDependencies(projectRoot: store.files.root)
+                    } label: {
+                        Label("Install dependencies", systemImage: "shippingbox")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(store.nodeRuntime.isInstalling || store.nodeRuntime.state == .running)
+
+                    if store.nodeRuntime.isInstalling {
+                        ProgressView().controlSize(.mini)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+            }
+
+            if let installMessage = store.nodeRuntime.install.message, !installMessage.isEmpty {
+                Text(installMessage)
+                    .font(.caption)
+                    .foregroundStyle(store.nodeRuntime.install.phase == .failed ? .orange : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if store.nodeRuntime.isProjectRunning, let port = store.nodeRuntime.projectPort {
                 HStack(spacing: 8) {
                     Text("http://localhost:\(port)")
@@ -222,7 +249,7 @@ struct ServerView: View {
                 }
             }
 
-            if store.nodeRuntime.state == .running {
+            if store.nodeRuntime.state == .running || store.nodeRuntime.isInstalling {
                 Button(role: .destructive) {
                     store.nodeRuntime.stop()
                 } label: {
@@ -278,7 +305,7 @@ struct ServerView: View {
                 )
             }
 
-            Text("NodeMobile runs without V8 JIT on iOS. Memory, background execution and available Node APIs remain limited by iOS.")
+            Text("Dependencies install from package.json automatically before the project starts. NodeMobile starts V8 without JIT, and iOS restricts child-process spawning, so shell install scripts and native addons are reported instead of run.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -287,6 +314,12 @@ struct ServerView: View {
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
+    private var hasNodeManifest: Bool {
+        FileManager.default.fileExists(
+            atPath: store.files.root.appendingPathComponent("package.json").path
         )
     }
 

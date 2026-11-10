@@ -38,7 +38,8 @@ else on the network — and it ships with a full browser to look at the result.
   episodes to HLS. `/api/provider` remains an explicit `503` until a compatible
   provider resolver is available.
 - **Embedded Node.js**: run a Node project from the hosted `www` folder on the
-  iPhone. PocketHost provides Node.js Mobile 18.20.4; its iOS V8 build has JIT
+  iPhone. PocketHost provides Node.js Mobile 18.20.4 and installs the project's
+  npm dependencies on the phone before it starts; its iOS V8 build has JIT
   disabled, and iOS still controls memory, background execution and process APIs.
 - **A real browser engine**: WKWebView renders the hosted pages with
   JIT-compiled JavaScript, WebGL 2 on the GPU, WebAssembly, Web Workers and
@@ -90,14 +91,39 @@ Add a `server.js` file to `Documents/www` (or enter another relative script path
 in the Node.js card on the Server tab), then tap **Run**. PocketHost starts the
 script inside its embedded Node.js runtime and sets `process.env.PORT` to an
 available port; use that value in your server's `listen` call. A `package.json`
-main entry is also accepted. Include any required `node_modules` in the project
-folder; PocketHost does not run `npm install` on the phone.
+main entry is also accepted.
+
+When the hosted folder has a `package.json`, **Run** installs its dependencies
+first, so nothing has to be prepared on a computer. The installer is itself
+JavaScript and runs inside the embedded engine, where Node's own `https`,
+`zlib` and `fs` do the work:
+
+- with a `package-lock.json` (v1, v2 or v3) it installs exactly the locked tree,
+  at the locked paths;
+- without one it resolves the graph from the registry — semver ranges, scoped
+  packages, dist-tags, peer and optional dependencies — and hoists and nests the
+  results the way npm does;
+- every tarball is checked against its `sha512`/`sha1` integrity before it is
+  unpacked, and kept in a content-addressed cache in the app's own storage, so a
+  second install of the same versions needs no network;
+- `node_modules/.bin` entries are linked, and `preinstall`, `install`,
+  `postinstall` and the root `prepare` script run in process when their command
+  is `node <file>` or `node -e`;
+- dependencies that need another platform, a shell command, a git checkout or a
+  native addon compiled with `node-gyp` are listed in the log instead of being
+  run, since iOS does not allow spawning processes.
+
+`node_modules` is managed by PocketHost: it is rewritten when `package.json` or
+the lockfile changes, and an unchanged project starts without touching the
+network.
 
 The runtime is Node.js Mobile 18.20.4 and is a single embedded engine per app
-process. Its iOS V8 build starts with JIT disabled; `child_process` process
-spawning and `process.exit()` are not supported, and iOS can pause background work
-or terminate the app under resource pressure. Stopping a project asks its servers
-and timers to close, but does not stop the embedded engine itself.
+process. Its iOS V8 build starts with JIT disabled, and iOS does not permit general
+child-process spawning. Calling `process.exit(code)` requests a graceful stop of the
+hosted project and records its exit code; it does not terminate PocketHost or the
+embedded engine, and it cannot interrupt JavaScript already executing in the call stack.
+Background work may still be suspended or terminated by iOS. Stopping a project
+asks its servers and timers to close, but does not stop the embedded engine itself.
 
 ## Background hosting
 

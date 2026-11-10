@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 0.9
+
+- Node projects install their own dependencies on the phone. Tapping **Run** (or
+  **Install dependencies**) reads `package.json`, resolves the graph — from
+  `package-lock.json` v1, v2 or v3 when one is there, from the npm registry
+  otherwise — downloads the tarballs over HTTPS, checks each one's
+  `sha512`/`sha1` integrity, unpacks them into the npm layout with hoisting and
+  nesting, links `node_modules/.bin`, and then starts the project. Downloads are
+  kept in a content-addressed cache, and an unchanged `package.json` skips the
+  install entirely.
+- `preinstall`, `install`, `postinstall` and root `prepare` scripts run in
+  process when the command is `node <file>` or `node -e`; anything that needs a
+  shell, another program or a native addon is reported instead of silently
+  skipped.
+- Map a hosted project's `process.exit(code)` call to a graceful project-only stop,
+  preserving PocketHost and its persistent Node.js engine.
+
 ## 0.8
 
 - Restored the built-in site API routes: `/api/health`, `/api/proxy`,
