@@ -2,15 +2,14 @@
 
 ## Unreleased
 
-- The API a source-driven site needs is now part of the server: `/api/health`,
-  `/api/proxy` (Referer and Range passthrough, HLS playlist rewriting through the
-  proxy, SRT to WebVTT), `/api/anilibria` (public API bridged to a direct HLS
-  episode) and `/api/provider` (an honest 503 — the Node provider engine cannot
-  run on the phone).
-- Every connection is served on its own queue, so one long proxied stream no
-  longer stalls every other request.
-- App Transport Security allows arbitrary loads, which proxy fetches to plain
-  http CDNs need.
+- Restored the built-in site API routes: `/api/health`, `/api/proxy`,
+  `/api/anilibria` and `/api/provider`, preserving their existing responses and
+  cross-origin behavior.
+- Added an embedded Node.js Mobile 18.20.4 runtime for running project entry files
+  from the hosted folder. The iOS V8 build has JIT disabled and remains subject
+  to iOS memory, background-execution and process-API restrictions.
+- Every connection is served on its own queue, so a slow client or long response
+  does not stall other requests.
 
 ## 0.7
 

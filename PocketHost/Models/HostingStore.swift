@@ -135,6 +135,7 @@ final class HostingStore: ObservableObject {
     let background = BackgroundKeeper()
     let global = GlobalAccess()
     let publisher = WebPublisher()
+    var nodeRuntime = NodeRuntimeManager()
 
     private let server: HTTPServer
     private let runner = LocalRunner()
@@ -213,6 +214,14 @@ final class HostingStore: ObservableObject {
         publisher.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
+
+        nodeRuntime.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        nodeRuntime.onActivityChange = { [weak self] _ in
+            self?.applyBackgroundPolicy()
+            self?.applyScreenPolicy()
+        }
 
         runner.shouldRun = { [weak self] in
             guard let self, self.deviceRunnerEnabled, self.isRunning else { return false }
@@ -381,8 +390,8 @@ final class HostingStore: ObservableObject {
             startedAt = nil
             runner.stop()
             global.stop()
-            background.setKeepAlive(false)
-            UIApplication.shared.isIdleTimerDisabled = false
+            applyBackgroundPolicy()
+            applyScreenPolicy()
 
         case .failure(let message):
             isStarting = false
@@ -390,8 +399,8 @@ final class HostingStore: ObservableObject {
             lastError = message
             runner.stop()
             global.stop()
-            background.setKeepAlive(false)
-            UIApplication.shared.isIdleTimerDisabled = false
+            applyBackgroundPolicy()
+            applyScreenPolicy()
 
         case .request(let entry):
             // Traffic, however idle, renews the lease with iOS.
@@ -420,11 +429,11 @@ final class HostingStore: ObservableObject {
     // MARK: - Keep-alive policy
 
     private func applyBackgroundPolicy() {
-        background.setKeepAlive(isRunning && backgroundHosting)
+        background.setKeepAlive((isRunning || nodeRuntime.isActive) && backgroundHosting)
     }
 
     private func applyScreenPolicy() {
-        UIApplication.shared.isIdleTimerDisabled = isRunning && keepScreenAwake
+        UIApplication.shared.isIdleTimerDisabled = (isRunning || nodeRuntime.isActive) && keepScreenAwake
     }
 
     /// The runner only works while there is a listener to talk to, and only

@@ -32,6 +32,14 @@ else on the network — and it ships with a full browser to look at the result.
   every path, and `Content-Range`, `Accept-Ranges`, `ETag` and `Content-Length`
   are exposed to cross-origin scripts, so a player or an API client can range
   request any file and read what came back.
+- **Built-in site APIs**: `/api/health` reports server capabilities;
+  `/api/proxy` fetches public HTTP(S) streams with range and referer passthrough,
+  HLS playlist rewriting and SRT-to-WebVTT conversion; `/api/anilibria` resolves
+  episodes to HLS. `/api/provider` remains an explicit `503` until a compatible
+  provider resolver is available.
+- **Embedded Node.js**: run a Node project from the hosted `www` folder on the
+  iPhone. PocketHost provides Node.js Mobile 18.20.4; its iOS V8 build has JIT
+  disabled, and iOS still controls memory, background execution and process APIs.
 - **A real browser engine**: WKWebView renders the hosted pages with
   JIT-compiled JavaScript, WebGL 2 on the GPU, WebAssembly, Web Workers and
   OffscreenCanvas. Its layer is set up for extended dynamic range, and served
@@ -45,13 +53,6 @@ else on the network — and it ships with a full browser to look at the result.
   `.zip` dropped in is unpacked into a folder named after it, so a site can be
   imported in one go. Assets — images, audio, video, PDFs, fonts, models — open
   in a Quick Look preview instead of the editor.
-- **Source-driven sites (dango)**: the API a source-driven player asks for is
-  built in. `/api/health` tells a site the server is there; `/api/proxy` fetches
-  a stream through the phone with the `Referer` a CDN expects, passes byte ranges
-  through, rewrites HLS playlists through itself and converts SRT subtitles to
-  WebVTT; `/api/anilibria` bridges the public AniLibria API into a direct HLS
-  episode. `/api/provider` answers honestly that the Node provider engine is not
-  available, so the site falls back to what does work.
 - **Shareable address**: the app shows the LAN URL and a QR code so another phone
   or a laptop can open the same site.
 - **Reachable from anywhere**: asks the router for a TCP port mapping (NAT-PMP,
@@ -82,6 +83,21 @@ else on the network — and it ships with a full browser to look at the result.
 (*On My iPhone › PocketHost › www*) because file sharing is enabled. Three sample
 pages are seeded on first launch: a landing page, a WebGL shader demo, and a
 capability lab that measures JIT throughput, WebAssembly, workers and viewport.
+
+## Node.js projects
+
+Add a `server.js` file to `Documents/www` (or enter another relative script path
+in the Node.js card on the Server tab), then tap **Run**. PocketHost starts the
+script inside its embedded Node.js runtime and sets `process.env.PORT` to an
+available port; use that value in your server's `listen` call. A `package.json`
+main entry is also accepted. Include any required `node_modules` in the project
+folder; PocketHost does not run `npm install` on the phone.
+
+The runtime is Node.js Mobile 18.20.4 and is a single embedded engine per app
+process. Its iOS V8 build starts with JIT disabled; `child_process` process
+spawning and `process.exit()` are not supported, and iOS can pause background work
+or terminate the app under resource pressure. Stopping a project asks its servers
+and timers to close, but does not stop the embedded engine itself.
 
 ## Background hosting
 
@@ -126,9 +142,8 @@ small one: PocketHost puts **no ceiling** on what it serves, and nothing is
 refused for its size. The Server tab reports the app's own memory footprint as a
 readout.
 
-Each connection gets its own queue, so a long request — a proxied stream, say —
-does not hold up the other clients. Proxy fetches are downloaded to a temporary
-file and served from there with byte ranges, then cleaned up an hour later.
+Each connection gets its own queue, so a slow client or a long response does not
+hold up other clients.
 
 ## Web Crypto
 

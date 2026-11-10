@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B7687E88A6361BFC81EE48FE /* NodeMobile in Frameworks */ = {isa = PBXBuildFile; productRef = 6E2D5166FC7201AF416B9EEE /* NodeMobile */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		0A0000000000000000000021 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,10 +31,11 @@
 		0A0000000000000000000003 /* PocketHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PocketHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A0000000000000000000023 /* PocketHostTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PocketHostTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A0000000000000000000033 /* PocketHostUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PocketHostUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		EEF1457030B24E2BDE2F6DF6 /* NodeMobile */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NodeMobile; path = NodeMobileRuntime; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		0A0000000000000000000011 /* Exceptions for "PocketHost" folder in "PocketHost" target */ = {
+		0A0000000000000000000011 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -43,7 +48,7 @@
 		0A0000000000000000000005 /* PocketHost */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				0A0000000000000000000011 /* Exceptions for "PocketHost" folder in "PocketHost" target */,
+				0A0000000000000000000011 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
 			);
 			path = PocketHost;
 			sourceTree = "<group>";
@@ -65,6 +70,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B7687E88A6361BFC81EE48FE /* NodeMobile in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -92,6 +98,7 @@
 				0A0000000000000000000025 /* PocketHostTests */,
 				0A0000000000000000000035 /* PocketHostUITests */,
 				0A0000000000000000000004 /* Products */,
+				EEF1457030B24E2BDE2F6DF6 /* NodeMobile */,
 			);
 			sourceTree = "<group>";
 		};
@@ -125,6 +132,7 @@
 			);
 			name = PocketHost;
 			packageProductDependencies = (
+				6E2D5166FC7201AF416B9EEE /* NodeMobile */,
 			);
 			productName = PocketHost;
 			productReference = 0A0000000000000000000003 /* PocketHost.app */;
@@ -577,6 +585,13 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		6E2D5166FC7201AF416B9EEE /* NodeMobile */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NodeMobile;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 0A0000000000000000000001 /* Project object */;
 }

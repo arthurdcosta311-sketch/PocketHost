@@ -20,6 +20,7 @@ struct ServerView: View {
                     statusCard
                     backgroundCard
                     guardCard
+                    nodeRuntimeCard
                     addressesCard
                     statsRow
                     activityCard
@@ -153,6 +154,149 @@ struct ServerView: View {
             color: store.isRunning ? Color.accentColor.opacity(0.16) : .clear,
             radius: 22, y: 8
         )
+    }
+
+    // MARK: - Node.js runtime
+
+    private var nodeRuntimeCard: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(spacing: 12) {
+                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.teal)
+                    .frame(width: 34, height: 34)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.teal.opacity(0.14))
+                    )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Node.js runtime")
+                        .font(.footnote.weight(.semibold))
+                    Text(store.nodeRuntime.state.title)
+                        .font(.caption)
+                        .foregroundStyle(nodeStateColor)
+                }
+
+                Spacer()
+
+                Text("v18.20.4")
+                    .font(.caption2.weight(.semibold).monospaced())
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Run a JavaScript server from the hosted www folder on this iPhone.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            TextField("server.js", text: $store.nodeRuntime.entrypoint)
+                .font(.system(.footnote, design: .monospaced))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.tertiarySystemGroupedBackground))
+                )
+                .accessibilityLabel("Node.js project entry file")
+
+            if store.nodeRuntime.isProjectRunning, let port = store.nodeRuntime.projectPort {
+                HStack(spacing: 8) {
+                    Text("http://localhost:\(port)")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    Spacer()
+
+                    Button("Open") {
+                        if let url = URL(string: "http://localhost:\(port)/") {
+                            router.openInBrowser(url)
+                        }
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.borderless)
+                }
+            }
+
+            if store.nodeRuntime.state == .running {
+                Button(role: .destructive) {
+                    store.nodeRuntime.stop()
+                } label: {
+                    Label("Stop Node project", systemImage: "stop.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+            } else {
+                Button {
+                    store.nodeRuntime.start(projectRoot: store.files.root, preferredPort: store.port)
+                } label: {
+                    HStack(spacing: 8) {
+                        if store.nodeRuntime.state == .starting || store.nodeRuntime.state == .stopping {
+                            ProgressView().controlSize(.small)
+                            Text(store.nodeRuntime.state == .starting ? "Starting Node…" : "Stopping Node…")
+                        } else {
+                            Image(systemName: "play.fill")
+                            Text("Run Node project")
+                        }
+                    }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(store.nodeRuntime.state == .starting || store.nodeRuntime.state == .stopping)
+            }
+
+            if let message = store.nodeRuntime.message {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(store.nodeRuntime.state == .failed ? .orange : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !store.nodeRuntime.logs.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(Array(store.nodeRuntime.logs.suffix(8))) { line in
+                        Text(line.text)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.tertiarySystemGroupedBackground))
+                )
+            }
+
+            Text("NodeMobile runs without V8 JIT on iOS. Memory, background execution and available Node APIs remain limited by iOS.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
+    private var nodeStateColor: Color {
+        switch store.nodeRuntime.state {
+        case .running: return .green
+        case .starting, .stopping: return .orange
+        case .failed: return .red
+        case .idle: return .secondary
+        }
     }
 
     // MARK: - Addresses
@@ -392,12 +536,12 @@ struct ServerView: View {
 
     private var backgroundDetail: String {
         guard store.backgroundHosting else {
-            return "Off. iOS pauses the server once PocketHost leaves the screen."
+            return "Off. iOS may pause hosted or Node servers after PocketHost leaves the screen."
         }
 
         switch store.background.state {
         case .active:
-            return "On. The server keeps answering with the screen off, until you stop it."
+            return "On. PocketHost keeps its hosted and Node servers available with the screen off, until you stop them."
         case .needsPermission:
             return "Allow Location so iOS keeps PocketHost running in the background."
         case .denied:
