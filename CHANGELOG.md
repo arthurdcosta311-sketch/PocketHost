@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.8
+
 - Restored the built-in site API routes: `/api/health`, `/api/proxy`,
   `/api/anilibria` and `/api/provider`, preserving their existing responses and
   cross-origin behavior.
