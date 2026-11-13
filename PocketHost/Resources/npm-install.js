@@ -1259,14 +1259,124 @@ async function install(options) {
   };
 }
 
+// MARK: - Registry search and add
+
+function registryBase(options) {
+  return String(
+    (options && options.registry) || process.env.POCKETHOST_NPM_REGISTRY || DEFAULT_REGISTRY
+  ).replace(/\/+$/, '');
+}
+
+async function fetchPackument(registry, name) {
+  const response = await requestBuffer(packumentURL(registry, name), {
+    headers: { accept: 'application/vnd.npm.install-v1+json' }
+  });
+  if (response.status === 404) throw new InstallError('The npm registry has no package "' + name + '".');
+  if (response.status !== 200) throw new InstallError('The npm registry returned ' + response.status + ' for ' + name + '.');
+  try {
+    return JSON.parse(response.body.toString('utf8'));
+  } catch (error) {
+    throw new InstallError('The npm registry sent invalid JSON for ' + name + '.');
+  }
+}
+
+/// Searches the registry, so the app can offer packages without a browser.
+async function search(query, options) {
+  const text = String(query || '').trim();
+  if (!text) return [];
+
+  const size = Math.max(1, Math.min(50, Number((options && options.size) || 20)));
+  const url = registryBase(options) + '/-/v1/search?text=' + encodeURIComponent(text) + '&size=' + size;
+  const response = await requestBuffer(url, { headers: { accept: 'application/json' } });
+
+  if (response.status !== 200) {
+    throw new InstallError('The npm registry search returned ' + response.status + '.');
+  }
+
+  let document;
+  try {
+    document = JSON.parse(response.body.toString('utf8'));
+  } catch (error) {
+    throw new InstallError('The npm registry search sent invalid JSON.');
+  }
+
+  return (document.objects || []).map(item => {
+    const entry = item.package || {};
+    return {
+      name: entry.name || '',
+      version: entry.version || '',
+      description: entry.description || '',
+      date: entry.date || '',
+      publisher: entry.publisher && entry.publisher.username ? entry.publisher.username : '',
+      score: item.score && typeof item.score.final === 'number' ? item.score.final : 0
+    };
+  }).filter(item => item.name);
+}
+
+function parseSpec(spec) {
+  const text = String(spec || '').trim();
+  if (!text) throw new InstallError('Name a package to add.');
+  if (text.charAt(0) === '@') {
+    const slash = text.indexOf('/');
+    if (slash === -1) throw new InstallError('A scoped package needs its scope: @scope/name.');
+    const at = text.indexOf('@', slash);
+    if (at === -1) return { name: text, range: '' };
+    return { name: text.slice(0, at), range: text.slice(at + 1) };
+  }
+  const at = text.indexOf('@');
+  if (at <= 0) return { name: text, range: '' };
+  return { name: text.slice(0, at), range: text.slice(at + 1) };
+}
+
+/// Adds a dependency to package.json and installs it, the way
+/// `npm install <spec>` does.
+async function add(projectRoot, spec, options) {
+  const settings = options || {};
+  const root = path.resolve(projectRoot);
+  const packageFile = path.join(root, 'package.json');
+  if (!fs.existsSync(packageFile)) {
+    throw new InstallError('Add a package.json to this project first.');
+  }
+
+  const manifest = readJSON(packageFile);
+  if (!manifest || typeof manifest !== 'object') {
+    throw new InstallError('package.json is not valid JSON.');
+  }
+
+  const parsed = parseSpec(spec);
+  const registry = registryBase(settings);
+  const document = await fetchPackument(registry, parsed.name);
+  const version = parsed.range
+    ? pickVersion(document, parsed.name, parsed.range)
+    : (document['dist-tags'] && document['dist-tags'].latest) || pickVersion(document, parsed.name, '*');
+
+  if (!version) throw new InstallError('The registry did not report a version for ' + parsed.name + '.');
+
+  const section = settings.dev ? 'devDependencies' : 'dependencies';
+  if (!manifest[section] || typeof manifest[section] !== 'object') manifest[section] = {};
+  manifest[section][parsed.name] = parsed.range && parsed.range !== 'latest' ? parsed.range : '^' + version;
+
+  fs.writeFileSync(packageFile, JSON.stringify(manifest, null, 2) + '\n');
+  if (typeof settings.log === 'function') {
+    settings.log('[npm] Added ' + parsed.name + '@' + manifest[section][parsed.name] + ' to package.json');
+  }
+
+  const summary = await install(Object.assign({}, settings, { projectRoot: root, force: true }));
+  summary.added = { name: parsed.name, version: version, range: manifest[section][parsed.name] };
+  return summary;
+}
+
 module.exports = {
   install: install,
+  search: search,
+  add: add,
   // Exported for the tests that run this file outside the app.
   satisfies: satisfies,
   parseRange: parseRange,
   parseVersion: parseVersion,
   extractTarball: extractTarball,
-  verifyIntegrity: verifyIntegrity
+  verifyIntegrity: verifyIntegrity,
+  parseSpec: parseSpec
 };
 
 if (require.main === module) {

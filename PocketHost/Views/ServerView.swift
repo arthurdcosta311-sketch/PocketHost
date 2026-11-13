@@ -11,6 +11,7 @@ struct ServerView: View {
 
     @State private var showingSettings = false
     @State private var showingShare = false
+    @State private var showingPackageSearch = false
     @State private var shareURL: String?
 
     var body: some View {
@@ -45,6 +46,9 @@ struct ServerView: View {
             }
             .sheet(isPresented: $showingShare) {
                 ShareSiteSheet(url: shareURL ?? store.lanURLString ?? store.localURLString)
+            }
+            .sheet(isPresented: $showingPackageSearch) {
+                PackageSearchView()
             }
         }
     }
@@ -208,6 +212,16 @@ struct ServerView: View {
                         store.nodeRuntime.installDependencies(projectRoot: store.files.root)
                     } label: {
                         Label("Install dependencies", systemImage: "shippingbox")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(store.nodeRuntime.isInstalling || store.nodeRuntime.state == .running)
+
+                    Button {
+                        showingPackageSearch = true
+                    } label: {
+                        Label("Add package", systemImage: "plus.circle")
                             .font(.footnote.weight(.semibold))
                     }
                     .buttonStyle(.bordered)

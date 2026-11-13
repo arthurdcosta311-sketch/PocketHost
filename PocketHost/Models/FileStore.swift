@@ -46,7 +46,14 @@ final class FileStore: ObservableObject {
 
         var isHTML: Bool { ["html", "htm", "xhtml"].contains(fileExtension) }
         var isEditable: Bool { FileStore.isEditable(url) }
-        var isImage: Bool { ["png", "jpg", "jpeg", "gif", "webp", "heic", "avif", "svg"].contains(fileExtension) }
+        var isImage: Bool {
+            [
+                "png", "apng", "jpg", "jpeg", "jpe", "gif", "webp", "heic", "heif",
+                "avif", "avifs", "svg", "svgz", "bmp", "tiff", "tif", "ico", "icns",
+                "jp2", "jxl", "psd", "exr", "hdr", "ktx2", "dds", "tga", "qoi",
+                "dng", "cr2", "cr3", "nef", "arw", "orf", "raf", "rw2", "eps", "ai"
+            ].contains(fileExtension)
+        }
 
         var sizeText: String {
             isDirectory ? "Folder" : FileStore.sizeText(size)
@@ -69,14 +76,27 @@ final class FileStore: ObservableObject {
         "go", "rs", "java", "kt", "kts", "swift", "c", "h", "hpp", "cpp", "cc", "cs",
         "dockerfile", "containerfile", "gitignore", "gitattributes", "dockerignore",
         "editorconfig", "npmrc", "babelrc", "eslintrc", "prettierrc", "tf", "tfvars",
-        "glsl", "frag", "vert", "wgsl", "hlsl", "metal"
+        "glsl", "frag", "vert", "wgsl", "hlsl", "metal",
+        "dart", "scala", "clj", "cljs", "cljc", "edn", "ex", "exs", "erl", "hrl",
+        "hs", "lhs", "ml", "mli", "nim", "zig", "v", "sol", "asm", "s", "cmd",
+        "fish", "tcl", "awk", "sed", "jl", "m", "mm", "pm", "coffee", "elm",
+        "purs", "re", "rei", "groovy", "gradle", "cmake", "mk", "ninja", "bazel",
+        "bzl", "nix", "dhall", "jsonnet", "hcl", "nginx", "htaccess", "service",
+        "desktop", "xcconfig", "pbxproj", "storyboard", "xib", "strings",
+        "stringsdict", "po", "pot", "ipynb", "rmd", "qmd", "adoc", "asciidoc",
+        "rst", "textile", "org", "wiki", "podspec", "gemspec", "diff", "patch",
+        "manifest", "appcache", "robots", "sitemap", "tex", "latex", "bib", "ris",
+        "gpx", "kml", "ics", "vcf", "pem", "crt", "key", "pub", "asc"
     ]
 
     /// Files that are text even though they carry no extension.
     static let editableNames: Set<String> = [
         "dockerfile", "containerfile", "makefile", "procfile", "gemfile",
         "brewfile", "rakefile", "vagrantfile", "justfile", "license", "licence",
-        "readme", "changelog", "authors", "notice", "cmakelists"
+        "readme", "changelog", "authors", "notice", "cmakelists",
+        "podfile", "caddyfile", "jenkinsfile", "fastfile", "berksfile",
+        "guardfile", "capfile", "thorfile", "procfile.dev", "docker-compose",
+        "robots.txt", "humans.txt", "security.txt", ".htaccess"
     ]
 
     static func isEditable(_ url: URL) -> Bool {
@@ -96,13 +116,59 @@ final class FileStore: ObservableObject {
             return htmlTemplate
         case "css", "scss", "sass", "less":
             return "/* \(name) */\n"
-        case "js", "mjs", "cjs", "jsx", "ts", "tsx":
+        case "js", "mjs", "cjs", "jsx":
+            return "// \(name)\n"
+        case "ts", "tsx":
             return "// \(name)\n"
         case "json", "jsonc", "json5", "geojson":
             return "{}\n"
+        case "md", "markdown":
+            return "# \(((name as NSString).deletingPathExtension))\n\n"
+        case "svg":
+            return svgTemplate(name: name)
+        case "yml", "yaml":
+            return "# \(name)\n"
+        case "toml", "ini", "conf", "properties", "env":
+            return "# \(name)\n"
+        case "py":
+            return "#!/usr/bin/env python3\n# \(name)\n\n"
+        case "sh", "bash", "zsh", "fish":
+            return "#!/bin/sh\n# \(name)\n\nset -eu\n"
+        case "sql":
+            return "-- \(name)\n\n"
+        case "xml", "plist", "sitemap":
+            return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        case "csv":
+            return "name,value\n"
+        case "tsv":
+            return "name\tvalue\n"
+        case "txt", "log":
+            return ""
+        case "vtt":
+            return "WEBVTT\n\n"
+        case "m3u8":
+            return "#EXTM3U\n"
+        case "webmanifest", "manifest":
+            return "{\n  \"name\": \"\",\n  \"start_url\": \"/\"\n}\n"
+        case "graphql", "gql":
+            return "# \(name)\n"
+        case "rs", "go", "c", "h", "cpp", "cs", "java", "kt", "swift":
+            return "// \(name)\n"
         default:
             return ""
         }
+    }
+
+    private static func svgTemplate(name: String) -> String {
+        let title = (name as NSString).deletingPathExtension
+        return """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+          <title>\(title)</title>
+          <rect width="100" height="100" rx="18" fill="#0b1220"/>
+          <circle cx="50" cy="50" r="26" fill="none" stroke="#4da3ff" stroke-width="4"/>
+        </svg>
+
+        """
     }
 
     static let htmlTemplate = #"""

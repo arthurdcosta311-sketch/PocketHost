@@ -84,6 +84,23 @@ final class HostingStore: ObservableObject {
         didSet { persist() }
     }
 
+    /// The static host that serves a copy at a domain of the user's own.
+    @Published var deployProvider: SitePublisher.Provider {
+        didSet { persist() }
+    }
+
+    @Published var deploySiteName: String {
+        didSet { persist() }
+    }
+
+    @Published var deployDomain: String {
+        didSet { persist() }
+    }
+
+    @Published var cloudflareAccountID: String {
+        didSet { persist() }
+    }
+
     /// Publish to this account's own `<username>.github.io` site, which serves
     /// at the root of the address instead of a folder under it.
     @Published var publishUserSite: Bool {
@@ -135,6 +152,7 @@ final class HostingStore: ObservableObject {
     let background = BackgroundKeeper()
     let global = GlobalAccess()
     let publisher = WebPublisher()
+    let sitePublisher = SitePublisher()
     var nodeRuntime = NodeRuntimeManager()
 
     private let server: HTTPServer
@@ -161,6 +179,10 @@ final class HostingStore: ObservableObject {
         static let globalAccess = "pockethost.globalAccess"
         static let publishRepo = "pockethost.publishRepo"
         static let publishUserSite = "pockethost.publishUserSite"
+        static let deployProvider = "pockethost.deployProvider"
+        static let deploySiteName = "pockethost.deploySiteName"
+        static let deployDomain = "pockethost.deployDomain"
+        static let cloudflareAccountID = "pockethost.cloudflareAccountID"
     }
 
     // MARK: - Life cycle
@@ -184,6 +206,12 @@ final class HostingStore: ObservableObject {
         self.globalAccess = defaults.object(forKey: Keys.globalAccess) as? Bool ?? false
         self.publishRepo = defaults.string(forKey: Keys.publishRepo) ?? "pockethost-site"
         self.publishUserSite = defaults.object(forKey: Keys.publishUserSite) as? Bool ?? false
+        self.deployProvider = SitePublisher.Provider(
+            rawValue: defaults.string(forKey: Keys.deployProvider) ?? ""
+        ) ?? .netlify
+        self.deploySiteName = defaults.string(forKey: Keys.deploySiteName) ?? "pockethost-site"
+        self.deployDomain = defaults.string(forKey: Keys.deployDomain) ?? ""
+        self.cloudflareAccountID = defaults.string(forKey: Keys.cloudflareAccountID) ?? ""
 
         self.server = HTTPServer(
             configuration: HTTPServer.Configuration(
@@ -212,6 +240,10 @@ final class HostingStore: ObservableObject {
         }
 
         publisher.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        sitePublisher.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
@@ -534,6 +566,30 @@ final class HostingStore: ObservableObject {
         }
     }
 
+    /// Copies the hosted folder to a static host that will serve it at a domain
+    /// of the user's own, and connects that domain when one is entered.
+    func deploySite() {
+        let provider = deployProvider
+        let root = files.root
+        let name = deploySiteName
+        let domain = deployDomain
+        let account = cloudflareAccountID
+
+        Task { @MainActor in
+            await sitePublisher.deploy(
+                provider: provider,
+                root: root,
+                siteName: name,
+                domain: domain,
+                accountID: account
+            )
+        }
+    }
+
+    func checkDomain() {
+        sitePublisher.check(domain: deployDomain, provider: deployProvider)
+    }
+
     // MARK: - Persistence
 
     private func persist() {
@@ -550,5 +606,9 @@ final class HostingStore: ObservableObject {
         defaults.set(globalAccess, forKey: Keys.globalAccess)
         defaults.set(publishRepo, forKey: Keys.publishRepo)
         defaults.set(publishUserSite, forKey: Keys.publishUserSite)
+        defaults.set(deployProvider.rawValue, forKey: Keys.deployProvider)
+        defaults.set(deploySiteName, forKey: Keys.deploySiteName)
+        defaults.set(deployDomain, forKey: Keys.deployDomain)
+        defaults.set(cloudflareAccountID, forKey: Keys.cloudflareAccountID)
     }
 }

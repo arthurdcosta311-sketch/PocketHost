@@ -13,13 +13,19 @@ else on the network — and it ships with a full browser to look at the result.
   folders without a trailing slash, `206` byte-range responses so video and audio
   seek properly, and a 40-entry live request log.
 - **Any file type**: HTML, CSS, JavaScript, modules, JSON, WebAssembly, images,
-  fonts, SVG, video, audio, PDF and more, with a MIME table in `MIMEType.swift`.
+  fonts, SVG, video, audio, PDF and more, with a MIME table in `MIMEType.swift`
+  that also covers archives (`7z`, `rar`, `zst`, `dmg`, `iso`), office documents
+  (`docx`, `xlsx`, `pptx`, `odt`, `epub`), camera raw and design files (`dng`,
+  `cr2`, `psd`, `ai`), 3D models (`glb`, `gltf`, `fbx`, `dae`, `usdz`), MIDI,
+  AIFF, `mpeg`, `vob`, `mxf`, keys and certificates, `sqlite`, `parquet`, `h5`,
+  and `gpx`/`kml`/`fit` location data.
   Source, config and container files count too — `.json`, `.js`, `.ts`, `.css`,
   `.yml`, `.toml`, `.rs`, `.go`, `.tf`, `Dockerfile` and the rest are served with
   sensible types and open in the editor even when they carry no extension.
   Folders are just folders, whatever they are called (`assets`, `css`, `js`,
-  `json` are all fine), and the new-file menu makes a page, stylesheet, script or
-  JSON file from a fitting template.
+  `json` are all fine), and the new-file menu starts a page, stylesheet, script,
+  Markdown file, SVG, YAML, Python, shell script, SQL file, WebVTT or HLS playlist
+  from a fitting template.
 - **Streaming sources**: HLS playlists and segments (`.m3u8`, `.ts`, `.m2ts`),
   DASH (`.mpd`, `.m4s`), fMP4, fragmented audio, subtitles, `.flv`, `.wmv`,
   `.wma` and the rest are served with their real content types, so a player
@@ -65,6 +71,11 @@ else on the network — and it ships with a full browser to look at the result.
   `https` address that works from anywhere without any network setup. Choose the
   account's own `username.github.io` site, which serves at the root of the
   address, or a named repository. `WebPublisher` does it over the GitHub REST API.
+- **Your own domain**: publish the same folder to Netlify or Cloudflare Pages —
+  both take a zip upload, both are free for static sites — and connect a domain
+  you own to the deployment. The app lists the DNS records to create, then
+  resolves the domain, follows its CNAME and asks it for a page, so you can see
+  whether it is live yet.
 - **Your sites, listed**: Settings reads every repository of the account that has
   GitHub Pages on. View opens one in the browser; Edit downloads its files into
   the hosted folder so you can change them here and publish them back.
@@ -115,7 +126,11 @@ JavaScript and runs inside the embedded engine, where Node's own `https`,
 
 `node_modules` is managed by PocketHost: it is rewritten when `package.json` or
 the lockfile changes, and an unchanged project starts without touching the
-network.
+network. **Add package** searches the registry from the phone and writes the
+package into `package.json` — `dependencies` by default, `devDependencies` when
+asked — then installs it, the way `npm install <spec>` does. A spec can carry a
+version or range (`ms@2.1.3`, `express@^4`), and a bare name takes the latest
+release.
 
 The runtime is Node.js Mobile 18.20.4 and is a single embedded engine per app
 process. Its iOS V8 build starts with JIT disabled, and iOS does not permit general
@@ -124,6 +139,34 @@ hosted project and records its exit code; it does not terminate PocketHost or th
 embedded engine, and it cannot interrupt JavaScript already executing in the call stack.
 Background work may still be suspended or terminated by iOS. Stopping a project
 asks its servers and timers to close, but does not stop the embedded engine itself.
+
+## Publishing to your own domain
+
+GitHub Pages gives a site an address; a domain of your own is what makes it a
+site people remember. Settings → **Publish to your own domain** copies the hosted
+folder to one of two hosts that accept a zip over HTTPS and serve it behind any
+domain you connect:
+
+- **Netlify** — create a personal access token at
+  `app.netlify.com/user/applications#personal-access-tokens` and paste it once;
+  PocketHost creates the site, uploads the folder as a deploy, waits for it to go
+  live and sets the custom domain on it.
+- **Cloudflare Pages** — create an API token with the *Cloudflare Pages: Edit*
+  permission, and copy the account ID from the dashboard. PocketHost creates the
+  project, uploads a deployment, waits for its stage to succeed and adds the
+  domain to the project.
+
+Both are free for static sites, both serve `https`, and both keep the domain
+across redeploys, so publishing again is one tap. The tokens belong to the
+account that made them and live in this phone's keychain.
+
+Under **Your domain's DNS** the app lists the records to create where the domain's
+DNS is managed — an `A` record to Netlify's address plus a `CNAME` for `www`, or a
+`CNAME` to the `pages.dev` project for Cloudflare — each with a copy button. Then
+**Check the domain** resolves it with the system resolver, follows its canonical
+name, and asks it for a page over `https` and `http`, so you can see whether it
+has propagated yet instead of guessing. Nothing about a domain is stored anywhere
+but on this phone.
 
 ## Background hosting
 

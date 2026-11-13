@@ -12,6 +12,7 @@ struct SettingsView: View {
 
     @State private var portText = ""
     @State private var tokenText = ""
+    @State private var deployTokenText = ""
     @State private var showingRestore = false
     @State private var restoreNote: String?
     @State private var siteToEdit: WebPublisher.Site?
@@ -155,6 +156,181 @@ struct SettingsView: View {
                     Text("Your GitHub Pages sites")
                 } footer: {
                     Text("Edit brings a site's files into the hosted folder so you can change them here; the next publish writes them back to that same repository. View opens it in the browser.")
+                }
+
+                Section {
+                    Picker("Host", selection: $store.deployProvider) {
+                        ForEach(SitePublisher.Provider.allCases) { provider in
+                            Text(provider.title).tag(provider)
+                        }
+                    }
+
+                    Text(store.deployProvider.summary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    if ApiKeyManager.shared.has(key: store.deployProvider.tokenKey) {
+                        LabeledContent("Token", value: "Saved in the keychain")
+
+                        Button("Remove token", role: .destructive) {
+                            ApiKeyManager.shared.remove(key: store.deployProvider.tokenKey)
+                            deployTokenText = ""
+                        }
+                    } else {
+                        SecureField("Paste your \(store.deployProvider.title) token", text: $deployTokenText)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+
+                        Button("Save token") {
+                            let value = deployTokenText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !value.isEmpty else { return }
+                            if ApiKeyManager.shared.set(key: store.deployProvider.tokenKey, value: value) {
+                                deployTokenText = ""
+                            }
+                        }
+                        .disabled(deployTokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    Button("Create a token at \(store.deployProvider.title)") {
+                        if let url = URL(string: store.deployProvider.tokenPage) {
+                            router.openInBrowser(url)
+                        }
+                    }
+                    .font(.footnote)
+
+                    if store.deployProvider.needsAccountID {
+                        TextField("Account ID", text: $store.cloudflareAccountID)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+
+                    HStack {
+                        Text("Site name")
+                        Spacer()
+                        TextField("pockethost-site", text: $store.deploySiteName)
+                            .multilineTextAlignment(.trailing)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+
+                    HStack {
+                        Text("Domain")
+                        Spacer()
+                        TextField("example.com", text: $store.deployDomain)
+                            .multilineTextAlignment(.trailing)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                    }
+
+                    Button {
+                        store.deploySite()
+                    } label: {
+                        HStack {
+                            Text("Publish to \(store.deployProvider.title)")
+
+                            if store.sitePublisher.state.isWorking {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(store.sitePublisher.state.isWorking)
+
+                    if let message = store.sitePublisher.state.message {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(store.sitePublisher.state.url == nil ? Color.secondary : Color.green)
+                    }
+
+                    if let url = store.sitePublisher.state.url {
+                        HStack {
+                            Text(url)
+                                .font(.system(.caption, design: .monospaced))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+
+                            Spacer()
+
+                            Button("Open") {
+                                if let parsed = URL(string: url) {
+                                    router.openInBrowser(parsed)
+                                }
+                            }
+                            .font(.footnote)
+                        }
+                    }
+                } header: {
+                    Text("Publish to your own domain")
+                } footer: {
+                    Text("Copies the hosted folder to Netlify or Cloudflare Pages and, when a domain is filled in, points that domain at the new deployment. Both are free for static sites, both serve https, and both keep the domain across redeploys. The token is created by your own account and kept in this phone's keychain.")
+                }
+
+                Section {
+                    HStack {
+                        Text("Domain")
+                        Spacer()
+                        Text(store.deployDomain.isEmpty ? "Set it above" : store.deployDomain)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button {
+                        store.checkDomain()
+                    } label: {
+                        HStack {
+                            Text("Check the domain")
+
+                            if store.sitePublisher.domainChecking {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(store.deployDomain.isEmpty || store.sitePublisher.domainChecking)
+
+                    if let report = store.sitePublisher.domainReport {
+                        LabeledContent("Resolves to", value: report.resolves ? report.addresses.prefix(2).joined(separator: ", ") : "Nothing yet")
+
+                        if let canonical = report.canonicalName {
+                            LabeledContent("Points at", value: canonical)
+                        }
+
+                        LabeledContent("Answering", value: report.httpsStatus.map { "https · \($0)" }
+                            ?? report.httpStatus.map { "http · \($0)" }
+                            ?? "No answer")
+
+                        Text(report.resolves && report.httpsStatus != nil
+                             ? "The domain is live."
+                             : "DNS can take a few minutes after the records below are saved at your registrar.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    ForEach(store.sitePublisher.records(for: store.deployProvider, domain: store.deployDomain)) { record in
+                        HStack(spacing: 10) {
+                            Text(record.type)
+                                .font(.caption.weight(.semibold).monospaced())
+                                .frame(width: 52, alignment: .leading)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(record.name)
+                                    .font(.system(.caption, design: .monospaced))
+                                Text(record.value)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+
+                            Spacer(minLength: 6)
+
+                            CopyButton(text: record.value)
+                        }
+                    }
+                } header: {
+                    Text("Your domain's DNS")
+                } footer: {
+                    Text("Add these records where the domain's DNS is managed, then check the domain. The site's own address keeps working either way.")
                 }
 
                 Section {

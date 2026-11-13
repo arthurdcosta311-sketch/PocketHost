@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## 1.01
+
+- Publish to a host that serves your own domain: Netlify and Cloudflare Pages
+  take the hosted folder as a zip and, when a domain is entered, connect it to
+  the new deployment. Both are free for static sites and keep the domain across
+  redeploys.
+- A domain check resolves the domain with the system resolver, follows its
+  canonical name and asks it for a page, so the app can say whether the domain
+  reaches the site yet; the DNS records to create at the registrar are listed
+  with a copy button for each.
+- Many more file types are served with their real content types and open in the
+  editor: archives (`7z`, `rar`, `bz2`, `xz`, `zst`, `dmg`, `iso`, `jar`, `apk`),
+  documents (`docx`, `xlsx`, `pptx`, `odt`, `epub`, `mobi`, `rtf`, `tex`),
+  images (`jp2`, `jxl`, `psd`, `ai`, `svgz`, `dng`, camera raw), audio (`aiff`,
+  `midi`, `mka`, `ape`, `wv`, `dsf`), video (`mpeg`, `vob`, `mxf`, `3g2`),
+  3D (`fbx`, `dae`, `stl`, `ply`, `usdz`, `usd`), fonts, keys and certificates,
+  scientific and data formats (`parquet`, `avro`, `sqlite`, `h5`, `nc`), and
+  another two dozen programming languages and config formats.
+- New files start from a fitting template for Markdown, SVG, YAML, Python, shell,
+  SQL, XML, CSV, WebVTT, HLS playlists and more.
+- The npm card can search the registry from the phone and add a package to
+  `package.json`, installing it straight away.
+
 ## 0.9
 
 - Node projects install their own dependencies on the phone. Tapping **Run** (or

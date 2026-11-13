@@ -35,6 +35,15 @@ struct NodeDependencyInstall: Equatable {
     var isRunning: Bool { phase == .installing }
 }
 
+/// A package the registry's search returned.
+struct NodePackageResult: Identifiable, Equatable {
+    let name: String
+    let version: String
+    let summary: String
+
+    var id: String { name }
+}
+
 final class NodeRuntimeManager: ObservableObject {
     enum State: Equatable {
         case idle
@@ -71,8 +80,12 @@ final class NodeRuntimeManager: ObservableObject {
     var onActivityChange: ((Bool) -> Void)?
 
     @Published private(set) var install = NodeDependencyInstall()
+    @Published private(set) var searchResults: [NodePackageResult] = []
+    @Published private(set) var isSearching = false
+    @Published private(set) var searchError: String?
 
     private var pendingStartScript: String?
+    private var searchAfterReady: String?
     private var projectRoot: URL?
     private var runtimeDirectory: URL?
     private var readyFile: URL?
@@ -145,6 +158,62 @@ final class NodeRuntimeManager: ObservableObject {
         } else {
             launchEngine()
         }
+    }
+
+    /// Searches the npm registry, starting the engine when it is not up yet.
+    func searchPackages(_ query: String, projectRoot: URL) {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        self.projectRoot = projectRoot.standardizedFileURL
+        isSearching = true
+        searchError = nil
+        searchResults = []
+
+        if runtimeReady {
+            performSearch(text)
+        } else if engineHasStarted {
+            isSearching = false
+            searchError = "The Node.js runtime stopped. Relaunch PocketHost to search again."
+        } else {
+            searchAfterReady = text
+            launchEngine()
+        }
+    }
+
+    /// Adds a package to package.json and installs it, like `npm install`.
+    func addPackage(_ name: String, projectRoot: URL, dev: Bool = false) {
+        guard state != .running, !install.isRunning else { return }
+        guard Self.hasPackageManifest(at: projectRoot) else {
+            message = "Add a package.json to the hosted folder before adding a package."
+            return
+        }
+
+        let root = projectRoot.standardizedFileURL
+        self.projectRoot = root
+        pendingStartScript = nil
+        install = NodeDependencyInstall(phase: .installing, message: "Adding \(name)…")
+        state = .starting
+        startLogPolling()
+
+        request(
+            path: "/npm/add",
+            method: "POST",
+            payload: ["directory": root.path, "spec": name, "dev": dev]
+        ) { [weak self] result in
+            guard let self else { return }
+            if case .failure(let error) = result {
+                self.install.phase = .failed
+                self.install.message = error.localizedDescription
+                self.finishInstall(success: false)
+            }
+        }
+    }
+
+    func clearSearch() {
+        searchResults = []
+        searchError = nil
+        isSearching = false
     }
 
     func stop() {
@@ -286,6 +355,12 @@ final class NodeRuntimeManager: ObservableObject {
 
     /// Installs dependencies when the project has a package.json, then runs it.
     private func beginProjectFlow() {
+        if let query = searchAfterReady {
+            searchAfterReady = nil
+            performSearch(query)
+            return
+        }
+
         guard let root = projectRoot else {
             fail("The hosted folder is not available.")
             return
@@ -298,6 +373,32 @@ final class NodeRuntimeManager: ObservableObject {
         } else {
             state = .idle
             stopLogPolling()
+        }
+    }
+
+    private func performSearch(_ query: String) {
+        request(path: "/npm/search", method: "POST", payload: ["query": query]) { [weak self] result in
+            guard let self else { return }
+            self.isSearching = false
+
+            switch result {
+            case .success(let response):
+                let rows = response["results"] as? [[String: Any]] ?? []
+                self.searchResults = rows.compactMap { row in
+                    guard let name = row["name"] as? String, !name.isEmpty else { return nil }
+                    return NodePackageResult(
+                        name: name,
+                        version: row["version"] as? String ?? "",
+                        summary: row["description"] as? String ?? ""
+                    )
+                }
+                if self.searchResults.isEmpty {
+                    self.searchError = "No package matched “\(query)”."
+                }
+
+            case .failure(let error):
+                self.searchError = error.localizedDescription
+            }
         }
     }
 
@@ -869,6 +970,44 @@ final class NodeRuntimeManager: ObservableObject {
       }
     }
 
+    async function runAdd(options) {
+      const directory = path.resolve(projectRoot, String(options.directory || ''));
+      if (directory !== projectRoot && !directory.startsWith(projectRoot + path.sep)) {
+        throw new Error('Packages can only be added to a project inside the hosted www folder.');
+      }
+
+      installCancelled = false;
+      installState = 'installing';
+      installMessage = 'Adding ' + String(options.spec || 'a package') + '…';
+      installSummary = null;
+
+      try {
+        const installer = loadInstaller();
+        const summary = await installer.add(directory, String(options.spec || ''), {
+          cacheDirectory: cacheDirectory || undefined,
+          dev: options.dev === true,
+          isCancelled: () => installCancelled,
+          log: text => writeLog(text)
+        });
+
+        installSummary = {
+          status: summary.status,
+          packages: summary.packages,
+          bytes: summary.bytes,
+          warnings: summary.warnings.length,
+          fromLock: summary.fromLock === true
+        };
+        installState = 'finished';
+        installMessage = 'Added ' + summary.added.name + ' ' + summary.added.range + ' (' + summary.packages + ' packages installed).';
+        writeLog('[runtime] ' + installMessage);
+      } catch (error) {
+        installState = 'failed';
+        installMessage = error && error.message ? error.message : String(error);
+        installSummary = null;
+        writeLog('[error] ' + installMessage);
+      }
+    }
+
     const controlServer = http.createServer(async (request, response) => {
       if (request.socket.remoteAddress !== '127.0.0.1' && request.socket.remoteAddress !== '::ffff:127.0.0.1') {
         send(response, 403, { error: 'Local control requests only.' });
@@ -927,6 +1066,50 @@ final class NodeRuntimeManager: ObservableObject {
       if (request.method === 'POST' && url.pathname === '/install/cancel') {
         installCancelled = installState === 'installing';
         send(response, 200, { state: installCancelled ? 'cancelling' : installState });
+        return;
+      }
+      if (request.method === 'POST' && url.pathname === '/npm/search') {
+        let options;
+        try {
+          options = await readBody(request);
+        } catch (error) {
+          send(response, 400, { error: error.message || String(error) });
+          return;
+        }
+
+        try {
+          const installer = loadInstaller();
+          const results = await installer.search(options.query, { registry: options.registry });
+          send(response, 200, { results: results });
+        } catch (error) {
+          send(response, 400, { error: error.message || String(error) });
+        }
+        return;
+      }
+      if (request.method === 'POST' && url.pathname === '/npm/add') {
+        if (active) {
+          send(response, 409, { error: 'Stop the Node project before adding a package.' });
+          return;
+        }
+        if (installState === 'installing') {
+          send(response, 409, { error: 'An installation is already running.' });
+          return;
+        }
+
+        let options;
+        try {
+          options = await readBody(request);
+        } catch (error) {
+          send(response, 400, { error: error.message || String(error) });
+          return;
+        }
+
+        runAdd(options).catch(error => {
+          installState = 'failed';
+          installMessage = error && error.message ? error.message : String(error);
+          writeLog('[error] ' + installMessage);
+        });
+        send(response, 202, { state: 'installing' });
         return;
       }
       if (request.method === 'POST' && url.pathname === '/start') {
